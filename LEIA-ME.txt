@@ -1,24 +1,31 @@
-CraftTudo 2.0 - projeto para compilar via GitHub Actions
+CraftTudo 3.0.0
 
-IMPORTANTE:
-- Este ZIP contém o código-fonte, não o JAR pronto.
-- O build usa Java 25 e Paper API 26.3.
-- O projeto ainda precisa compilar com sucesso no GitHub Actions e ser testado no servidor.
+COMANDOS
+- /crafttudo
+- /craftall
+- /craftmax
+- /crafttudo buscar <texto>
+- /crafttudo limpar
+- /crafttudo recarregar (permissão crafttudo.admin)
 
-COMO COMPILAR:
-1. Extraia o ZIP.
-2. Crie um repositório GitHub chamado CraftTudo.
-3. Envie TODO o conteúdo da pasta CraftTudo-2.0 para a raiz do repositório.
-   Inclua também a pasta oculta .github.
-4. Abra Actions e execute Build CraftTudo.
-5. Quando terminar verde, abra a execução e baixe o Artifact CraftTudo-Paper-26.3-v2.0.0.
-6. Extraia o JAR e envie para a pasta plugins do servidor. Reinicie.
+PERMISSÕES
+- crafttudo.use (padrão: true)
+- crafttudo.admin (padrão: OP)
 
-Comando: /crafttudo
-Aliases: /craftall e /craftmax
-Permissão: crafttudo.use (default true)
+MUDANÇAS
+- Por padrão, só aparecem receitas que podem ser montadas com os itens do inventário.
+- Ingredientes alternativos e escolhas exatas são verificadas pela RecipeChoice.
+- Validação e resultado usam o mecanismo de crafting do Paper.
+- A matriz resultante e itens excedentes são tratados.
+- O inventário é simulado antes de confirmar o consumo.
+- Saídas e sobras precisam caber no inventário; nada é jogado no chão.
+- Filtros, categorias, pesquisa e paginação.
+- Proteção contra shift-click e arraste no menu.
 
-Limitações conhecidas desta primeira base:
-- As escolhas alternativas de ingredientes em receitas complexas podem não ser resolvidas perfeitamente.
-- Receitas com ingredientes especiais podem exigir tratamento adicional de sobras/recipientes.
-- Teste em servidor de homologação antes de usar no servidor principal.
+COMPATIBILIDADE
+- Paper 26.3 / Java 25.
+- Interface de inventário Bukkit/Paper para Java e clientes Bedrock por Geyser.
+- Teste com clientes Java e Bedrock reais antes de instalar no servidor principal.
+
+BUILD
+GitHub Actions publica CraftTudo-Paper-26.3-v3.0.0.

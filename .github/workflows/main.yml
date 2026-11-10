@@ -1,10 +1,15 @@
-
 name: Build CraftTudo
 
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches:
+      - main
+      - master
+      - crafttudo-3.0
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -18,16 +23,22 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
+          cache: gradle
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build plugin
-        run: gradle clean build
+      - name: Compile and test
+        run: gradle clean test build --no-daemon
+
+      - name: Verify plugin JAR
+        run: |
+          test -s build/libs/CraftTudo-Paper-26.3-3.0.0.jar
+          jar tf build/libs/CraftTudo-Paper-26.3-3.0.0.jar | grep -E 'CraftTudoPlugin.class|plugin.yml|config.yml'
 
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
-          name: CraftTudo-Paper-26.3-v2.0.0
-          path: build/libs/CraftTudo-Paper-26.3-2.0.0.jar
-          
+          name: CraftTudo-Paper-26.3-v3.0.0
+          path: build/libs/CraftTudo-Paper-26.3-3.0.0.jar
+          if-no-files-found: error
