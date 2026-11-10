@@ -1,0 +1,24 @@
+CraftTudo 2.0 - projeto para compilar via GitHub Actions
+
+IMPORTANTE:
+- Este ZIP contém o código-fonte, não o JAR pronto.
+- O build usa Java 25 e Paper API 26.3.
+- O projeto ainda precisa compilar com sucesso no GitHub Actions e ser testado no servidor.
+
+COMO COMPILAR:
+1. Extraia o ZIP.
+2. Crie um repositório GitHub chamado CraftTudo.
+3. Envie TODO o conteúdo da pasta CraftTudo-2.0 para a raiz do repositório.
+   Inclua também a pasta oculta .github.
+4. Abra Actions e execute Build CraftTudo.
+5. Quando terminar verde, abra a execução e baixe o Artifact CraftTudo-Paper-26.3-v2.0.0.
+6. Extraia o JAR e envie para a pasta plugins do servidor. Reinicie.
+
+Comando: /crafttudo
+Aliases: /craftall e /craftmax
+Permissão: crafttudo.use (default true)
+
+Limitações conhecidas desta primeira base:
+- As escolhas alternativas de ingredientes em receitas complexas podem não ser resolvidas perfeitamente.
+- Receitas com ingredientes especiais podem exigir tratamento adicional de sobras/recipientes.
+- Teste em servidor de homologação antes de usar no servidor principal.

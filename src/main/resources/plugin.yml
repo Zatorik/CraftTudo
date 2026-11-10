@@ -1,0 +1,15 @@
+name: CraftTudo
+version: '2.0.0'
+main: br.com.puraresenha.crafttudo.CraftTudoPlugin
+api-version: '26.3'
+description: Menu de fabricação máxima para servidores Java e Bedrock via Geyser.
+author: Pura-Resenha
+commands:
+  crafttudo:
+    description: Abre o menu de fabricação máxima.
+    usage: /crafttudo
+    aliases: [craftall, craftmax]
+permissions:
+  crafttudo.use:
+    description: Permite usar o menu CraftTudo.
+    default: true
