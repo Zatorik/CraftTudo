@@ -1,37 +1,47 @@
-# CarryOnPaper 1.0.0
+# CarryOnPaper 1.1.0
 
 Plugin server-side para Paper 26.3, Java 25.
 
 ## Captura de mobs
-A captura usa uma allowlist fechada de EntityType. O plugin não interpreta ovos de spawn como comando e exige as duas mãos vazias. Mobs fora da lista são recusados.
+A captura usa uma allowlist fechada de tipos. O plugin não usa nem aceita ovos de invocação como mecanismo de captura. Exige Shift + botão direito com as duas mãos vazias.
 
-Permitidos:
-- Allay, tatu, morcego, camelo
-- Gato, galinha, vaca, burro, raposa, sapo
-- Cavalo, coguvaca, mula, jaguatirica, papagaio
-- Porco, coelho, ovelha, farejador, strider, tartaruga
-- Aldeão e comerciante ambulante
+Mobs passivos autorizados:
+- Allay, tatu, axolote, morcego, camelo
+- Gato, galinha, bacalhau, vaca, burro
+- Raposa, sapo, lula-brilhante, cavalo, coguvaca
+- Mula, jaguatirica, papagaio, porco, coelho
+- Salmão, ovelha, farejador, lula, strider
+- Girino, peixe tropical, tartaruga, aldeão e comerciante ambulante
 
-Mobs aquáticos que precisam permanecer na água e mobs neutros/hostis ficam fora da lista.
+Mobs neutros ou que podem atacar jogadores quando provocados (como panda, lobo, abelha, cabra e urso-polar) ficam de fora. Mobs hostis também ficam de fora.
+
+Mobs aquáticos só podem ser capturados na água e só são soltos dentro de uma coluna de água segura. Se não houver água por perto, o plugin mantém o mob protegido em vez de o soltar em terra.
 
 ## Blocos
 Lista fechada:
 - Baú simples e baú com armadilha (baús duplos são recusados)
 - Barril
+- Forno, alto-forno e defumador
 - Ejetor, liberador e funil
 - Caixas de shulker em todas as cores
 
-O plugin recusa blocos abertos, trancados ou com loot table aleatória. Guarda inventário, BlockData/orientação, nome personalizado, PDC do bloco e cooldown do funil. Não apaga o bloco original até conseguir criar o item de transporte.
+O plugin recusa blocos abertos, trancados ou com loot table aleatória. Guarda inventário, BlockData/orientação, nome personalizado e PDC. Para funis, guarda cooldown. Para fornos, guarda combustível restante, progresso de cozimento, tempo total, velocidade de cozimento e contagem de receitas usadas para preservar a experiência pendente.
 
 ## Controles
-- Agachar + botão direito com as duas mãos vazias em um mob permitido ou bloco permitido: pegar.
+- Shift + botão direito com as duas mãos vazias em um mob permitido ou bloco permitido: pegar.
 - Botão direito em uma superfície: soltar/colocar.
 - Apenas um mob ou bloco por jogador.
-- Enquanto carrega bloco, o inventário fica bloqueado para evitar mover/duplicar o item de transporte.
-- O mob fica invulnerável e sem IA enquanto carregado; as propriedades anteriores são restauradas ao soltar.
-- Ao desconectar, morrer, teletransportar ou desligar o plugin, o mob é solto e restaurado.
-- O item de bloco transportado mantém os dados no PDC e sobrevive a reinícios limpos.
+- Enquanto carrega bloco, cliques de inventário, arrastar, soltar e trocar mão são bloqueados para proteger o item de transporte.
+- Mobs ficam sem IA e invulneráveis durante o transporte; as propriedades originais são restauradas ao soltar.
+- Ao desconectar, morrer, teletransportar ou desligar o plugin, o plugin tenta restaurar o mob em um local adequado.
+- Itens de transporte usam tags PDC e ficam no inventário do jogador até colocação confirmada.
+
+## Compatibilidade e validação
+- Feito para Paper 26.3 com Java 25.
+- Como o plugin roda no servidor, não exige mod nos clientes.
+- Geyser/Bedrock precisa ser validado em teste real; eventos de clique podem variar conforme a versão do Geyser.
+- Compilação bem-sucedida não substitui teste no servidor.
 
 ## Instalação
-Coloque CarryOnPaper-1.0.0.jar na pasta plugins/ e reinicie o servidor.
+Coloque CarryOnPaper-1.1.0.jar na pasta plugins/ e reinicie o servidor.
 Permissão carryonpaper.use (padrão: todos).
