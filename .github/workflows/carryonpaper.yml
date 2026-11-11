@@ -34,7 +34,7 @@ jobs:
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
-          name: CarryOnPaper-Paper-26.3-v1.1.1
-          path: CarryOnPaper/build/libs/CarryOnPaper-1.1.1.jar
+          name: CarryOnPaper-Paper-26.3-v1.2.0
+          path: CarryOnPaper/build/libs/CarryOnPaper-1.2.0.jar
           if-no-files-found: error
           retention-days: 14
