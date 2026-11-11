@@ -1309,6 +1309,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         addMenuItem(inventory, 12, Material.PLAYER_HEAD, "Membros", "members");
         addMenuItem(inventory, 14, Material.GOLD_INGOT, "Ranking de clans", "top");
         addMenuItem(inventory, 16, Material.PAPER, "Ajuda e comandos", "help");
+        addMenuItem(inventory, 18, Material.ORANGE_DYE, "Cor da tag", "cor");
         addMenuItem(inventory, 20, Material.COMPASS, "Ir para a base", "home");
         addMenuItem(inventory, 22, Material.OAK_SIGN, "Alternar chat do clan", "chat");
         addMenuItem(inventory, 24, Material.WHITE_BANNER, "Ver aliados", "allies");
