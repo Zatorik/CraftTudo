@@ -1,0 +1,17 @@
+# ResenhaAntiFreeze 1.0.0
+# Esta versao coleta diagnosticos. Ela nao altera o combate nem remove efeitos.
+sampling:
+  interval-seconds: 5
+  combat-window-seconds: 15
+  nearby-radius: 12
+
+diagnostics:
+  log-to-console: true
+  save-to-file: true
+  max-report-lines: 30
+
+bedrock:
+  detect-with-floodgate: true
+
+messages:
+  prefix: "&8[&bAntiFreeze&8] "
