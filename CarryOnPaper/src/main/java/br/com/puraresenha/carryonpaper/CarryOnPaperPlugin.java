@@ -1,5 +1,7 @@
 package br.com.puraresenha.carryonpaper;
 
+import com.destroystokyo.paper.entity.villager.Reputation;
+import com.destroystokyo.paper.entity.villager.ReputationType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -747,12 +749,12 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 snapshot.set("villager.level", villager.getVillagerLevel());
                 snapshot.set("villager.experience", villager.getVillagerExperience());
                 snapshot.set("villager.restocksToday", villager.getRestocksToday());
-                snapshot.set("villager.gossipDecayTime", villager.getGossipDecayTime());
-
-                for (Map.Entry<String, Villager.ReputationType> reputationType : reputationTypes().entrySet()) {
-                    for (UUID playerId : getKnownReputationPlayers(villager)) {
-                        int value = villager.getReputation(playerId, reputationType.getValue());
-                        snapshot.set("villager.reputations." + playerId + "." + reputationType.getKey(), value);
+                for (Map.Entry<UUID, Reputation> reputationEntry : villager.getReputations().entrySet()) {
+                    for (ReputationType reputationType : ReputationType.values()) {
+                        if (reputationEntry.getValue().hasReputationSet(reputationType)) {
+                            snapshot.set("villager.reputations." + reputationEntry.getKey() + "."
+                                    + reputationType.name(), reputationEntry.getValue().getReputation(reputationType));
+                        }
                     }
                 }
 
@@ -871,11 +873,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 villager.setVillagerLevel(Math.max(1, Math.min(5, snapshot.getInt("villager.level", 1))));
                 villager.setVillagerExperience(Math.max(0, snapshot.getInt("villager.experience", 0)));
                 villager.setRestocksToday(Math.max(0, snapshot.getInt("villager.restocksToday", 0)));
-                if (snapshot.contains("villager.gossipDecayTime")) {
-                    villager.setGossipDecayTime(Math.max(0L, snapshot.getLong("villager.gossipDecayTime")));
-                }
-
-                villager.clearReputations();
+                Map<UUID, Reputation> restoredReputations = new HashMap<>();
                 if (snapshot.isConfigurationSection("villager.reputations")) {
                     for (String playerIdText : snapshot.getConfigurationSection("villager.reputations").getKeys(false)) {
                         UUID playerId;
@@ -884,14 +882,17 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                         } catch (IllegalArgumentException ignored) {
                             continue;
                         }
-                        for (Map.Entry<String, Villager.ReputationType> reputationType : reputationTypes().entrySet()) {
-                            String path = "villager.reputations." + playerIdText + "." + reputationType.getKey();
+                        Reputation reputation = new Reputation();
+                        for (ReputationType reputationType : ReputationType.values()) {
+                            String path = "villager.reputations." + playerIdText + "." + reputationType.name();
                             if (snapshot.contains(path)) {
-                                villager.setReputation(playerId, reputationType.getValue(), snapshot.getInt(path));
+                                reputation.setReputation(reputationType, snapshot.getInt(path));
                             }
                         }
+                        restoredReputations.put(playerId, reputation);
                     }
                 }
+                villager.setReputations(restoredReputations);
 
                 restoreLocationMemory(villager, MemoryKey.JOB_SITE, snapshot, "villager.memory.job_site");
                 restoreLocationMemory(villager, MemoryKey.POTENTIAL_JOB_SITE, snapshot, "villager.memory.potential_job_site");
@@ -1223,33 +1224,6 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 }
             });
         }
-    }
-
-    private Map<String, Villager.ReputationType> reputationTypes() {
-        Map<String, Villager.ReputationType> types = new java.util.LinkedHashMap<>();
-        types.put("major_negative", Villager.ReputationType.MAJOR_NEGATIVE);
-        types.put("minor_negative", Villager.ReputationType.MINOR_NEGATIVE);
-        types.put("minor_positive", Villager.ReputationType.MINOR_POSITIVE);
-        types.put("major_positive", Villager.ReputationType.MAJOR_POSITIVE);
-        types.put("trading", Villager.ReputationType.TRADING);
-        return types;
-    }
-
-    private Set<UUID> getKnownReputationPlayers(Villager villager) {
-        Set<UUID> ids = new HashSet<>();
-        // Bukkit 26.3 permite consultar reputação por UUID, mas não expõe uma lista
-        // pública de todos os UUIDs associados. Os perfis conhecidos pelo servidor
-        // são consultados para preservar todos os valores não zerados.
-        for (org.bukkit.OfflinePlayer player : Bukkit.getOfflinePlayers()) {
-            UUID playerId = player.getUniqueId();
-            for (Villager.ReputationType type : reputationTypes().values()) {
-                if (villager.getReputation(playerId, type) != 0) {
-                    ids.add(playerId);
-                    break;
-                }
-            }
-        }
-        return ids;
     }
 
     private void saveLocationMemory(YamlConfiguration snapshot, String path, Location location) {
