@@ -1,14 +1,43 @@
 name: ResenhaClans
-version: '1.0.1'
+version: '1.1.0'
 main: br.com.puraresenha.resenhaclans.ResenhaClansPlugin
 api-version: '26.3'
-description: Sistema de clans com cargos, convites, alianças, guerras, chat e estatísticas.
+description: Sistema de clans e chat social com filtros, mensagens privadas, alianças e guerras.
 author: Zatorik
 commands:
   clan:
     description: Sistema de clans do Pura-Resenha.
     usage: /clan ajuda
     aliases: [clans, guilda, guild]
+  clanchat:
+    description: Alterna entre chat do clan e chat global.
+    usage: /clanchat [on|off]
+    aliases: [cc]
+  g:
+    description: Volta ao chat global.
+    usage: /g
+    aliases: [global]
+  msg:
+    description: Envia uma mensagem privada.
+    usage: /msg <jogador> <mensagem>
+    aliases: [tell, w, whisper]
+  reply:
+    description: Responde a última mensagem privada.
+    usage: /r <mensagem>
+    aliases: [r]
+  ignore:
+    description: Bloqueia mensagens de um jogador.
+    usage: /ignore <jogador>
+  unignore:
+    description: Desbloqueia mensagens de um jogador.
+    usage: /unignore <jogador>
+  ignorelist:
+    description: Mostra os jogadores bloqueados.
+    usage: /ignorelist
+  chat:
+    description: Abre as configurações de chat e notificações.
+    usage: /chat [toggle <opção>]
+    aliases: [chatsettings]
 permissions:
   resenhaclans.admin:
     description: Permite recarregar a configuração do ResenhaClans.
