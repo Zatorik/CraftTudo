@@ -18,10 +18,14 @@ import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.type.Chest.Type;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.AbstractHorse;
+import org.bukkit.entity.AbstractVillager;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Villager;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -40,6 +44,8 @@ import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.inventory.CookingRecipe;
+import org.bukkit.inventory.EntityEquipment;
+import org.bukkit.inventory.MerchantRecipe;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
@@ -52,6 +58,7 @@ import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -148,6 +155,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
     private NamespacedKey mobGravityKey;
     private NamespacedKey mobSilentKey;
     private NamespacedKey mobCollidableKey;
+    private NamespacedKey mobSnapshotKey;
 
     @Override
     public void onEnable() {
@@ -175,12 +183,13 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         mobGravityKey = new NamespacedKey(this, "mob_gravity");
         mobSilentKey = new NamespacedKey(this, "mob_silent");
         mobCollidableKey = new NamespacedKey(this, "mob_collidable");
+        mobSnapshotKey = new NamespacedKey(this, "mob_snapshot");
 
         Bukkit.getPluginManager().registerEvents(this, this);
         Bukkit.getScheduler().runTask(this, this::recoverOrphanedMobs);
         Bukkit.getScheduler().runTaskTimer(this, this::checkCarriedMobs, 20L, 20L);
 
-        getLogger().info("CarryOnPaper carregado. Lista fechada de mobs e blocos ativa.");
+        getLogger().info("CarryOnPaper 1.2.0 carregado. Snapshot de equipamentos, montarias e dados comerciais ativo.");
     }
 
     @Override
@@ -304,6 +313,11 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         }
 
         saveMobFlags(mob);
+        if (!saveMobData(mob)) {
+            restoreMobFlags(mob);
+            player.sendMessage(Component.text("Não consegui salvar os equipamentos e dados desse mob. Ele não foi carregado.", NamedTextColor.RED));
+            return;
+        }
         mob.setAI(false);
         mob.setInvulnerable(true);
         mob.setGravity(false);
@@ -656,6 +670,135 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             getLogger().severe("Falha ao colocar bloco carregado: " + exception.getMessage());
             player.sendMessage(Component.text("A colocação falhou. O item carregado foi mantido; tente outro local.", NamedTextColor.RED));
         }
+    }
+
+
+    /**
+     * Captura os dados que podem ser perdidos durante a viagem como passageiro.
+     * A cópia fica na própria entidade via PDC.
+     */
+    private boolean saveMobData(Mob mob) {
+        try {
+            YamlConfiguration snapshot = new YamlConfiguration();
+            if (mob instanceof LivingEntity living) {
+                EntityEquipment equipment = living.getEquipment();
+                if (equipment != null) {
+                    snapshot.set("equipment.main", equipment.getItemInMainHand().clone());
+                    snapshot.set("equipment.off", equipment.getItemInOffHand().clone());
+                    snapshot.set("equipment.helmet", equipment.getHelmet() == null ? null : equipment.getHelmet().clone());
+                    snapshot.set("equipment.chestplate", equipment.getChestplate() == null ? null : equipment.getChestplate().clone());
+                    snapshot.set("equipment.leggings", equipment.getLeggings() == null ? null : equipment.getLeggings().clone());
+                    snapshot.set("equipment.boots", equipment.getBoots() == null ? null : equipment.getBoots().clone());
+                }
+            }
+            if (mob instanceof AbstractHorse horse) {
+                saveInventorySnapshot(snapshot, "horse.inventory", horse.getInventory().getContents());
+            }
+            if (mob instanceof AbstractVillager merchant) {
+                snapshot.set("merchant.recipes", merchant.getRecipes());
+                saveInventorySnapshot(snapshot, "merchant.inventory", merchant.getInventory().getContents());
+            }
+            if (mob instanceof Villager villager) {
+                snapshot.set("villager.profession", villager.getProfession().name());
+                snapshot.set("villager.type", villager.getVillagerType().name());
+                snapshot.set("villager.level", villager.getVillagerLevel());
+                snapshot.set("villager.experience", villager.getVillagerExperience());
+                snapshot.set("villager.restocksToday", villager.getRestocksToday());
+            }
+            mob.getPersistentDataContainer().set(mobSnapshotKey, PersistentDataType.STRING, snapshot.saveToString());
+            return true;
+        } catch (RuntimeException exception) {
+            getLogger().warning("Falha ao salvar dados do mob " + mob.getUniqueId() + ": " + exception.getMessage());
+            return false;
+        }
+    }
+
+    private void saveInventorySnapshot(YamlConfiguration config, String path, ItemStack[] contents) {
+        config.set(path + ".size", contents.length);
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack item = contents[slot];
+            if (item != null) config.set(path + ".items." + slot, item.clone());
+        }
+    }
+
+    /**
+     * Restaura equipamentos, inventários de montarias e dados comerciais.
+     * A snapshot só é removida depois de todas as partes serem restauradas.
+     */
+    private boolean restoreMobData(Mob mob) {
+        PersistentDataContainer data = mob.getPersistentDataContainer();
+        String serialized = data.get(mobSnapshotKey, PersistentDataType.STRING);
+        if (serialized == null) return true;
+
+        try {
+            YamlConfiguration snapshot = new YamlConfiguration();
+            snapshot.loadFromString(serialized);
+
+            if (mob instanceof LivingEntity living) {
+                EntityEquipment equipment = living.getEquipment();
+                if (equipment != null && snapshot.isConfigurationSection("equipment")) {
+                    equipment.setItemInMainHand(cloneOrAir(snapshot.getItemStack("equipment.main")));
+                    equipment.setItemInOffHand(cloneOrAir(snapshot.getItemStack("equipment.off")));
+                    equipment.setHelmet(cloneOrAir(snapshot.getItemStack("equipment.helmet")));
+                    equipment.setChestplate(cloneOrAir(snapshot.getItemStack("equipment.chestplate")));
+                    equipment.setLeggings(cloneOrAir(snapshot.getItemStack("equipment.leggings")));
+                    equipment.setBoots(cloneOrAir(snapshot.getItemStack("equipment.boots")));
+                }
+            }
+
+            if (mob instanceof AbstractHorse horse && snapshot.contains("horse.inventory.size")) {
+                restoreInventorySnapshot(snapshot, "horse.inventory", horse.getInventory());
+            }
+
+            if (mob instanceof Villager villager && snapshot.isConfigurationSection("villager")) {
+                String profession = snapshot.getString("villager.profession");
+                String type = snapshot.getString("villager.type");
+                if (profession != null) villager.setProfession(Villager.Profession.valueOf(profession));
+                if (type != null) villager.setVillagerType(Villager.Type.valueOf(type));
+                villager.setVillagerLevel(Math.max(1, Math.min(5, snapshot.getInt("villager.level", 1))));
+                villager.setVillagerExperience(Math.max(0, snapshot.getInt("villager.experience", 0)));
+                villager.setRestocksToday(Math.max(0, snapshot.getInt("villager.restocksToday", 0)));
+            }
+
+            if (mob instanceof AbstractVillager merchant && snapshot.isConfigurationSection("merchant")) {
+                restoreInventorySnapshot(snapshot, "merchant.inventory", merchant.getInventory());
+                List<?> rawRecipes = snapshot.getList("merchant.recipes");
+                if (rawRecipes != null) {
+                    List<MerchantRecipe> recipes = rawRecipes.stream()
+                            .filter(MerchantRecipe.class::isInstance)
+                            .map(MerchantRecipe.class::cast)
+                            .toList();
+                    if (recipes.size() != rawRecipes.size()) {
+                        throw new IllegalStateException("A lista de trocas salva contém dados inválidos.");
+                    }
+                    merchant.setRecipes(recipes);
+                }
+            }
+
+            data.remove(mobSnapshotKey);
+            return true;
+        } catch (Exception exception) {
+            getLogger().severe("Não foi possível restaurar os dados do mob " + mob.getUniqueId()
+                    + ". A cópia foi mantida para nova tentativa: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    private ItemStack cloneOrAir(ItemStack item) {
+        return item == null ? new ItemStack(Material.AIR) : item.clone();
+    }
+
+    private void restoreInventorySnapshot(YamlConfiguration snapshot, String path, org.bukkit.inventory.Inventory inventory) {
+        int size = snapshot.getInt(path + ".size", -1);
+        if (size < 0 || size != inventory.getSize()) {
+            throw new IllegalStateException("Tamanho de inventário incompatível em " + path);
+        }
+        ItemStack[] contents = new ItemStack[size];
+        for (int slot = 0; slot < size; slot++) {
+            ItemStack item = snapshot.getItemStack(path + ".items." + slot);
+            contents[slot] = item == null ? null : item.clone();
+        }
+        inventory.setContents(contents);
     }
 
     private void saveMobFlags(Mob mob) {
