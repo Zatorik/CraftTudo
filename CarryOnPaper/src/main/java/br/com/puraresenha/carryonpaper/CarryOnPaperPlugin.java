@@ -200,7 +200,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         Bukkit.getScheduler().runTask(this, this::recoverOrphanedMobs);
         Bukkit.getScheduler().runTaskTimer(this, this::checkCarriedMobs, 20L, 20L);
 
-        getLogger().info("CarryOnPaper 1.3.0 carregado. Proteção adicional de dados de mobs e aldeões ativa.");
+        getLogger().info("CarryOnPaper 1.4.2 carregado. Preservação e recuperação de dados de mobs ativa.");
     }
 
     @Override
@@ -222,8 +222,10 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                     }
                     if (safe != null) {
                         if (mob.getVehicle() != null) mob.leaveVehicle();
-                        mob.teleport(safe);
-                        if (restoreMobData(mob)) restoreMobFlags(mob);
+                        if (moveMobToSafeLocation(mob, safe)
+                                && restoreMobData(mob)) {
+                            restoreMobFlags(mob);
+                        }
                     }
                 }
             }
@@ -804,7 +806,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             }
             if (mob instanceof org.bukkit.entity.Animals animals && snapshot.contains("animal.loveModeTicks")) {
                 int loveTicks = Math.max(0, snapshot.getInt("animal.loveModeTicks"));
-                if (loveTicks > 0) animals.setLoveModeTicks(loveTicks);
+                animals.setLoveModeTicks(loveTicks);
                 String breedCause = snapshot.getString("animal.breedCause");
                 if (breedCause != null) {
                     try { animals.setBreedCause(UUID.fromString(breedCause)); }
@@ -969,7 +971,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         saveMobBackups();
     }
 
-    private void restoreMobFlags(Mob mob) {
+    private boolean restoreMobFlags(Mob mob) {
         PersistentDataContainer data = mob.getPersistentDataContainer();
 
         Byte ai = data.get(mobAiKey, PersistentDataType.BYTE);
@@ -990,6 +992,20 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         if (collidable != null) mob.setCollidable(collidable == 1);
         else if (mobBackups.contains(base + ".flags.collidable")) mob.setCollidable(mobBackups.getBoolean(base + ".flags.collidable"));
 
+        String previousBackups = mobBackups.saveToString();
+        mobBackups.set(base, null);
+        if (!saveMobBackups()) {
+            try {
+                mobBackups.loadFromString(previousBackups);
+            } catch (InvalidConfigurationException exception) {
+                getLogger().severe("Não foi possível restaurar o backup em memória de " + mob.getUniqueId()
+                        + ": " + exception.getMessage());
+            }
+            getLogger().warning("O backup de " + mob.getUniqueId()
+                    + " foi mantido porque não foi possível confirmar sua remoção em disco.");
+            return false;
+        }
+
         data.remove(mobMarkerKey);
         data.remove(mobAiKey);
         data.remove(mobInvulnerableKey);
@@ -1000,8 +1016,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         data.remove(mobOriginXKey);
         data.remove(mobOriginYKey);
         data.remove(mobOriginZKey);
-        mobBackups.set("mobs." + mob.getUniqueId(), null);
-        saveMobBackups();
+        return true;
     }
 
     private void releaseMob(Player player, boolean notify) {
@@ -1045,14 +1060,38 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             mob.leaveVehicle();
         }
 
-        mob.teleport(safe);
-        mob.setVelocity(new Vector(0, 0, 0));
-        mob.setFallDistance(0);
-        if (restoreMobData(mob)) restoreMobFlags(mob);
-        carriedMobs.remove(player.getUniqueId());
+        if (!moveMobToSafeLocation(mob, safe)) {
+            if (notify && player.isOnline()) {
+                player.sendMessage(Component.text("O servidor recusou a soltura. O mob continua protegido e tentarei novamente.", NamedTextColor.YELLOW));
+            }
+            return;
+        }
+        if (restoreMobData(mob) && restoreMobFlags(mob)) {
+            carriedMobs.remove(player.getUniqueId());
+        }
 
         if (notify && player.isOnline()) {
             player.sendMessage(Component.text("Mob solto.", NamedTextColor.GREEN));
+        }
+    }
+
+    private boolean moveMobToSafeLocation(Mob mob, Location safe) {
+        if (safe == null || !mob.isValid() || mob.isDead()) {
+            return false;
+        }
+        try {
+            if (!mob.teleport(safe)) {
+                getLogger().warning("O servidor recusou a movimentação segura do mob " + mob.getUniqueId()
+                        + ". A restauração foi adiada.");
+                return false;
+            }
+            mob.setVelocity(new Vector(0, 0, 0));
+            mob.setFallDistance(0);
+            return true;
+        } catch (RuntimeException exception) {
+            getLogger().warning("Falha ao mover o mob " + mob.getUniqueId()
+                    + "; a restauração foi adiada: " + exception.getMessage());
+            return false;
         }
     }
 
@@ -1091,11 +1130,12 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             if (mob.getVehicle() != null) {
                 mob.leaveVehicle();
             }
-            mob.teleport(safe);
-            mob.setVelocity(new Vector(0, 0, 0));
-            mob.setFallDistance(0);
-            if (restoreMobData(mob)) restoreMobFlags(mob);
-            carriedMobs.remove(playerId);
+            if (!moveMobToSafeLocation(mob, safe)) {
+                continue;
+            }
+            if (restoreMobData(mob) && restoreMobFlags(mob)) {
+                carriedMobs.remove(playerId);
+            }
         }
     }
 
@@ -1126,8 +1166,10 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 }
 
                 if (safe != null) {
-                    mob.teleport(safe);
-                    if (restoreMobData(mob)) restoreMobFlags(mob);
+                    if (moveMobToSafeLocation(mob, safe)
+                            && restoreMobData(mob)) {
+                        restoreMobFlags(mob);
+                    }
                 }
             }
         }
@@ -1175,10 +1217,10 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 if (mob.getVehicle() != null) {
                     mob.leaveVehicle();
                 }
-                mob.teleport(safe);
-                mob.setVelocity(new Vector(0, 0, 0));
-                mob.setFallDistance(0);
-                if (restoreMobData(mob)) restoreMobFlags(mob);
+                if (moveMobToSafeLocation(mob, safe)
+                        && restoreMobData(mob)) {
+                    restoreMobFlags(mob);
+                }
             });
         }
     }
