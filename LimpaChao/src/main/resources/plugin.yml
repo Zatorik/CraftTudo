@@ -1,0 +1,16 @@
+name: LimpaChao
+version: 1.0.0
+main: br.com.puraresenha.limpachao.LimpaChaoPlugin
+api-version: '26.3'
+description: Limpa itens dropados do chão em intervalos configuráveis.
+author: Pura-Resenha
+
+commands:
+  limpachao:
+    description: Gerencia o LimpaChao.
+    usage: /limpachao reload
+
+permissions:
+  limpachao.admin:
+    description: Permite recarregar a configuração do LimpaChao.
+    default: op

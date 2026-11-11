@@ -1,0 +1,20 @@
+# Intervalo entre as limpezas, em minutos.
+interval-minutes: 5
+
+# Segundos restantes em que o servidor enviará avisos.
+countdown-seconds:
+  - 30
+  - 20
+  - 10
+  - 5
+  - 4
+  - 3
+  - 2
+  - 1
+
+messages:
+  warning: "&e[Limpeza] O chão será limpo em &c{time}&e."
+  cleaned: "&a[Limpeza] Chão limpo! &f{amount} &aitens removidos."
+  reloaded: "&aConfiguração do LimpaChao recarregada."
+  no-permission: "&cVocê não tem permissão para isso."
+  usage: "&eUse: /limpachao reload"
