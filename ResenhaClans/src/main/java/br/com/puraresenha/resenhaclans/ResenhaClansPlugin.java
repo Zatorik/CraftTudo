@@ -558,8 +558,13 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         }
         if (commandName.equals("chat")) {
             if (!(sender instanceof Player player)) { error(sender, "Somente jogadores podem abrir as configurações de chat."); return true; }
-            if (args.length >= 2 && args[0].equalsIgnoreCase("toggle")) toggleChatPreference(player, args[1]);
-            else openChatSettings(player);
+            if (args.length >= 2 && args[0].equalsIgnoreCase("toggle")) {
+                if (args.length >= 3 && (args[2].equalsIgnoreCase("on") || args[2].equalsIgnoreCase("off"))) {
+                    setChatPreference(player, args[1], args[2]);
+                } else {
+                    toggleChatPreference(player, args[1]);
+                }
+            } else openChatSettings(player);
             return true;
         }
 
@@ -859,15 +864,6 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         if (player != null && message != null) player.sendMessage(Component.text(message, NamedTextColor.RED));
     }
 
-    private void toggleClanChat(Player player, Clan clan) {
-        if (clan == null) { error(player, "Você não pertence a um clan."); return; }
-        if (clanChat.remove(player.getUniqueId())) success(player, "Chat do clan desativado.");
-        else {
-            clanChat.add(player.getUniqueId());
-            player.sendMessage(Component.text("Chat do clan ativado. Suas mensagens agora vão só para seu clan.", NamedTextColor.GREEN));
-        }
-    }
-
     private void sendClanMessage(Player player, Clan clan, String[] args) {
         if (clan == null) { error(player, "Você não pertence a um clan."); return; }
         if (args.length < 2) { error(player, "Uso: /clan c <mensagem>"); return; }
@@ -1094,17 +1090,25 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
     }
 
     private void toggleChatPreference(Player player, String key) {
+        changeChatPreference(player, key, null);
+    }
+
+    private void setChatPreference(Player player, String key, String state) {
+        changeChatPreference(player, key, state.equalsIgnoreCase("on"));
+    }
+
+    private void changeChatPreference(Player player, String key, Boolean desiredState) {
         PlayerSettings prefs = settings(player.getUniqueId());
         String normalized = key.toLowerCase(Locale.ROOT);
         switch (normalized) {
-            case "global" -> prefs.globalChat = !prefs.globalChat;
-            case "clan" -> prefs.clanChat = !prefs.clanChat;
-            case "tell", "pv", "privado" -> prefs.receiveTells = !prefs.receiveTells;
-            case "activity", "atividade" -> prefs.activity = !prefs.activity;
-            case "invites", "convites" -> prefs.invites = !prefs.invites;
-            case "diplomacy", "diplomacia" -> prefs.diplomacy = !prefs.diplomacy;
-            case "wars", "guerras" -> prefs.wars = !prefs.wars;
-            case "announcements", "anuncios" -> prefs.announcements = !prefs.announcements;
+            case "global" -> prefs.globalChat = desiredState == null ? !prefs.globalChat : desiredState;
+            case "clan" -> prefs.clanChat = desiredState == null ? !prefs.clanChat : desiredState;
+            case "tell", "pv", "privado" -> prefs.receiveTells = desiredState == null ? !prefs.receiveTells : desiredState;
+            case "activity", "atividade" -> prefs.activity = desiredState == null ? !prefs.activity : desiredState;
+            case "invites", "convites" -> prefs.invites = desiredState == null ? !prefs.invites : desiredState;
+            case "diplomacy", "diplomacia" -> prefs.diplomacy = desiredState == null ? !prefs.diplomacy : desiredState;
+            case "wars", "guerras" -> prefs.wars = desiredState == null ? !prefs.wars : desiredState;
+            case "announcements", "anuncios" -> prefs.announcements = desiredState == null ? !prefs.announcements : desiredState;
             default -> { error(player, "Opções: global, clan, tell, activity, invites, diplomacy, wars, announcements."); return; }
         }
         saveData();
