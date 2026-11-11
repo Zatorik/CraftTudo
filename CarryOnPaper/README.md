@@ -1,4 +1,4 @@
-# CarryOnPaper 1.1.0
+# CarryOnPaper 1.1.1
 
 Plugin server-side para Paper 26.3, Java 25.
 
@@ -34,6 +34,7 @@ O plugin recusa blocos abertos, trancados ou com loot table aleatória. Guarda i
 - Enquanto carrega bloco, cliques de inventário, arrastar, soltar e trocar mão são bloqueados para proteger o item de transporte.
 - Mobs ficam sem IA e invulneráveis durante o transporte; as propriedades originais são restauradas ao soltar.
 - Ao desconectar, morrer, teletransportar ou desligar o plugin, o plugin tenta restaurar o mob em um local adequado.
+- Mobs transportados que voltam a carregar em chunks posteriormente também passam por recuperação automática.
 - Itens de transporte usam tags PDC e ficam no inventário do jogador até colocação confirmada.
 
 ## Compatibilidade e validação
@@ -43,5 +44,5 @@ O plugin recusa blocos abertos, trancados ou com loot table aleatória. Guarda i
 - Compilação bem-sucedida não substitui teste no servidor.
 
 ## Instalação
-Coloque CarryOnPaper-1.1.0.jar na pasta plugins/ e reinicie o servidor.
+Coloque CarryOnPaper-1.1.1.jar na pasta plugins/ e reinicie o servidor.
 Permissão carryonpaper.use (padrão: todos).
