@@ -505,7 +505,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         }
 
         Component formatted = Component.text("[CLAN] ", NamedTextColor.GOLD)
-                .append(Component.text("[" + clan.tag + "] ", NamedTextColor.YELLOW))
+                .append(Component.text("[" + clan.tag + "] ", TextColor.fromHexString(TagColor.fromName(clan.tagColor).hex)))
                 .append(Component.text(sender.getName() + " » ", NamedTextColor.WHITE))
                 .append(message);
         for (UUID memberId : clan.members.keySet()) {
