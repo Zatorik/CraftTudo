@@ -4,6 +4,7 @@ import io.papermc.paper.event.player.AsyncChatEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.format.TextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -133,6 +134,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
                             section.getString("tag", "CLAN"), section.getString("description", ""),
                             leader, section.getLong("created-at", System.currentTimeMillis()),
                             section.getInt("points", 0), section.getBoolean("friendly-fire", false));
+                    clan.tagColor = TagColor.fromName(section.getString("tag-color", "COPPER")).name();
                     ConfigurationSection members = section.getConfigurationSection("members");
                     if (members != null) {
                         for (String rawMember : members.getKeys(false)) {
@@ -274,6 +276,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             String base = "clans." + clan.id;
             out.set(base + ".name", clan.name);
             out.set(base + ".tag", clan.tag);
+            out.set(base + ".tag-color", TagColor.fromName(clan.tagColor).name());
             out.set(base + ".description", clan.description);
             out.set(base + ".leader", clan.leader.toString());
             out.set(base + ".created-at", clan.createdAt);
@@ -612,6 +615,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             case "chat" -> toggleClanChat(player, args);
             case "c" -> sendClanMessage(player, clan, args);
             case "friendlyfire" -> setFriendlyFire(player, clan, args);
+            case "cor", "color", "colour" -> openClanColorMenu(player, clan);
             case "ally", "aliar" -> requestAlliance(player, clan, args);
             case "allyaccept", "aceitaralianca" -> acceptAlliance(player, clan, args);
             case "unally", "desaliar" -> removeAlliance(player, clan, args);
@@ -1173,6 +1177,43 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         inventory.setItem(slot, item);
     }
 
+    private void openClanColorMenu(Player player, Clan clan) {
+        if (clan == null) { error(player, "Você não pertence a um clan."); return; }
+        if (!clan.leader.equals(player.getUniqueId())) { error(player, "Somente o líder pode alterar a cor da tag."); return; }
+        ColorMenuHolder holder = new ColorMenuHolder();
+        Inventory inventory = Bukkit.createInventory(holder, 27, Component.text("Cor da tag do clan"));
+        holder.inventory = inventory;
+        TagColor[] colors = TagColor.values();
+        for (int i = 0; i < colors.length; i++) {
+            TagColor color = colors[i];
+            ItemStack item = new ItemStack(color.icon);
+            ItemMeta meta = item.getItemMeta();
+            meta.displayName(Component.text(color.display, TextColor.fromHexString(color.hex)));
+            meta.lore(List.of(
+                    Component.text("Exemplo: [" + clan.tag + "]", TextColor.fromHexString(color.hex)),
+                    Component.text(color.name().equalsIgnoreCase(clan.tagColor) ? "Cor atual" : "Clique para selecionar", NamedTextColor.GRAY)
+            ));
+            meta.getPersistentDataContainer().set(menuActionKey, PersistentDataType.STRING, "tagcolor:" + color.name());
+            item.setItemMeta(meta);
+            inventory.setItem(10 + i, item);
+        }
+        player.openInventory(inventory);
+    }
+
+    private void setClanColor(Player player, Clan clan, TagColor color) {
+        if (clan == null || !clan.leader.equals(player.getUniqueId())) {
+            error(player, "Somente o líder pode alterar a cor da tag.");
+            return;
+        }
+        clan.tagColor = color.name();
+        for (UUID memberId : clan.members.keySet()) {
+            Player online = Bukkit.getPlayer(memberId);
+            if (online != null) updateTabName(online);
+        }
+        saveData();
+        success(player, "Cor da tag alterada para " + color.display + ".");
+    }
+
     private void updateTabName(Player player) {
         if (!getConfig().getBoolean("tablist.show-clan-tag", true)) {
             player.playerListName(null);
@@ -1187,7 +1228,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         clanTagsSnapshot.put(player.getUniqueId(), clan.tag);
         Component name = Component.text(player.getName(), NamedTextColor.WHITE)
                 .append(Component.text(" ✦", NamedTextColor.GOLD))
-                .append(Component.text(" [" + clan.tag + "]", NamedTextColor.DARK_GRAY));
+                .append(Component.text(" [" + clan.tag + "]", TextColor.fromHexString(TagColor.fromName(clan.tagColor).hex)));
         player.playerListName(name);
     }
 
@@ -1307,6 +1348,19 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             openChatSettings(player);
             return;
         }
+        if (event.getView().getTopInventory().getHolder() instanceof ColorMenuHolder) {
+            event.setCancelled(true);
+            if (!(event.getWhoClicked() instanceof Player player) || event.getClickedInventory() != event.getView().getTopInventory()) return;
+            ItemStack clicked = event.getCurrentItem();
+            if (clicked == null || !clicked.hasItemMeta()) return;
+            String action = clicked.getItemMeta().getPersistentDataContainer().get(menuActionKey, PersistentDataType.STRING);
+            if (action == null || !action.startsWith("tagcolor:")) return;
+            Clan clan = findClan(player.getUniqueId());
+            TagColor color = TagColor.fromName(action.substring("tagcolor:".length()));
+            player.closeInventory();
+            setClanColor(player, clan, color);
+            return;
+        }
         if (!(event.getView().getTopInventory().getHolder() instanceof ClanMenuHolder)) return;
         event.setCancelled(true);
         if (!(event.getWhoClicked() instanceof Player player) || event.getClickedInventory() != event.getView().getTopInventory()) return;
@@ -1414,6 +1468,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
                 "/clan allyaccept <TAG> • aceitar aliança",
                 "/clan guerra <TAG> e /clan peace <TAG> • guerra",
                 "/clan friendlyfire <on|off> • fogo amigo",
+                "/clan cor • escolher a cor da tag (líder)" ,
                 "/clan top /clan list /clan stats [jogador] • rankings",
                 "/clan sair • deixar clan",
                 "/clan dissolver confirm • apagar clan (líder)"
@@ -1447,7 +1502,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
                     .filter(key -> key.startsWith(args[0].toLowerCase(Locale.ROOT))).toList();
         }
         if (args.length == 1) {
-            return List.of("criar", "menu", "info", "membros", "convidar", "aceitar", "recusar",
+            return List.of("criar", "menu", "info", "membros", "convidar", "aceitar", "recusar", "cor", 
                     "sair", "expulsar", "promover", "rebaixar", "transferir", "dissolver", "desc",
                     "anunciar", "sethome", "home", "chat", "c", "friendlyfire", "ally", "allyaccept",
                     "unally", "allies", "guerra", "peace", "top", "list", "stats", "ajuda", "reload")
@@ -1485,10 +1540,38 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
     }
     private enum RelationType { ALLY_PENDING, ALLY, WAR }
 
+    private enum TagColor {
+        COPPER("Cobre", "#C47A3A", Material.ORANGE_STAINED_GLASS_PANE),
+        RED("Vermelho", "#F04444", Material.RED_STAINED_GLASS_PANE),
+        ORANGE("Laranja", "#FF8C32", Material.ORANGE_STAINED_GLASS_PANE),
+        YELLOW("Amarelo", "#FFD43B", Material.YELLOW_STAINED_GLASS_PANE),
+        LIME("Verde-limão", "#A3E635", Material.LIME_STAINED_GLASS_PANE),
+        GREEN("Verde", "#35C759", Material.GREEN_STAINED_GLASS_PANE),
+        CYAN("Ciano", "#22D3EE", Material.CYAN_STAINED_GLASS_PANE),
+        LIGHT_BLUE("Azul-claro", "#60A5FA", Material.LIGHT_BLUE_STAINED_GLASS_PANE),
+        BLUE("Azul", "#3498DB", Material.BLUE_STAINED_GLASS_PANE),
+        PURPLE("Roxo", "#A855F7", Material.PURPLE_STAINED_GLASS_PANE),
+        MAGENTA("Magenta", "#D946EF", Material.MAGENTA_STAINED_GLASS_PANE),
+        PINK("Rosa", "#F472B6", Material.PINK_STAINED_GLASS_PANE),
+        WHITE("Branco", "#FFFFFF", Material.WHITE_STAINED_GLASS_PANE),
+        LIGHT_GRAY("Cinza-claro", "#D1D5DB", Material.LIGHT_GRAY_STAINED_GLASS_PANE),
+        GRAY("Cinza", "#6B7280", Material.GRAY_STAINED_GLASS_PANE),
+        BLACK("Preto", "#303030", Material.BLACK_STAINED_GLASS_PANE);
+        private final String display;
+        private final String hex;
+        private final Material icon;
+        TagColor(String display, String hex, Material icon) { this.display = display; this.hex = hex; this.icon = icon; }
+        private static TagColor fromName(String name) {
+            try { return valueOf(name.toUpperCase(Locale.ROOT)); }
+            catch (RuntimeException exception) { return COPPER; }
+        }
+    }
+
     private static final class Clan {
         private final UUID id;
         private final String name;
         private final String tag;
+        private String tagColor = "COPPER";
         private String description;
         private UUID leader;
         private final long createdAt;
@@ -1530,6 +1613,10 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
     }
     private record PendingTeleport(BukkitTask task, Location origin, UUID clanId) {}
     private static final class ClanMenuHolder implements InventoryHolder {
+        private Inventory inventory;
+        @Override public Inventory getInventory() { return inventory; }
+    }
+    private static final class ColorMenuHolder implements InventoryHolder {
         private Inventory inventory;
         @Override public Inventory getInventory() { return inventory; }
     }
