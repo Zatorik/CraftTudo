@@ -1,0 +1,12 @@
+clan:
+  max-members: 20
+invites:
+  expire-seconds: 300
+home:
+  teleport-delay-seconds: 3
+  cancel-on-move: true
+  cancel-on-damage: true
+pvp:
+  protect-allies: true
+messages:
+  join-quit: true

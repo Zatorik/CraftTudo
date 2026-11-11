@@ -1,0 +1,15 @@
+name: ResenhaClans
+version: '1.0.0'
+main: br.com.puraresenha.resenhaclans.ResenhaClansPlugin
+api-version: '26.3'
+description: Sistema de clans com cargos, convites, alianças, guerras, chat e estatísticas.
+author: Zatorik
+commands:
+  clan:
+    description: Sistema de clans do Pura-Resenha.
+    usage: /clan ajuda
+    aliases: [clans, guilda, guild]
+permissions:
+  resenhaclans.admin:
+    description: Permite recarregar a configuração do ResenhaClans.
+    default: op
