@@ -1245,11 +1245,29 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
 
     private boolean saveMobBackups() {
         if (mobBackups == null || mobBackupsFile == null) return false;
+        File temporaryFile = new File(getDataFolder(), "mob-backups.yml.tmp");
         try {
-            mobBackups.save(mobBackupsFile);
+            mobBackups.save(temporaryFile);
+            try {
+                java.nio.file.Files.move(
+                        temporaryFile.toPath(),
+                        mobBackupsFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE
+                );
+            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                java.nio.file.Files.move(
+                        temporaryFile.toPath(),
+                        mobBackupsFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                );
+            }
             return true;
         } catch (IOException exception) {
             getLogger().severe("Não foi possível salvar mob-backups.yml: " + exception.getMessage());
+            if (temporaryFile.exists() && !temporaryFile.delete()) {
+                getLogger().warning("Não foi possível remover o arquivo temporário " + temporaryFile.getName());
+            }
             return false;
         }
     }
