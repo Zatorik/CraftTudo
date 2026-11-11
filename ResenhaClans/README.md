@@ -1,25 +1,49 @@
-# ResenhaClans 1.0.1
+# ResenhaClans 1.1.0
 
-Plugin de clans para Paper 26.3 / Java 25. Desenvolvido para o Pura-Resenha.
+Plugin de clans e qualidade de vida social para Paper 26.3 / Java 25.
 
-## Recursos implementados
-- Persistência em YAML com gravação atômica em plugins/ResenhaClans/clans.yml.
-- Criar clan com tag exclusiva (3-5 letras/números), nome e descrição.
-- Até 20 membros por padrão, limite configurável.
+## Clans
+- Persistência em YAML com gravação atômica.
+- Criar clan com tag exclusiva (3-5 caracteres), nome e descrição.
+- Até 20 membros por padrão (configurável).
 - Cargos: Líder, Colíder, Oficial e Membro.
-- Convites com expiração configurável, aceitar e recusar.
-- Expulsar membros, promover/rebaixar (líder), transferir liderança e dissolver com confirmação.
-- Chat privado alternável com /clan chat e mensagem direta /clan c.
-- Base com /clan sethome e /clan home; atraso configurável e cancelamento ao mover ou receber dano.
-- Alianças com pedido e aceite. Aliados não podem causar dano uns aos outros.
-- Guerras entre clans, anúncios globais e pontos por eliminações entre os clans em guerra.
-- Fogo amigo configurável por clan.
-- Estatísticas persistentes de kills/mortes individuais e por membro.
-- Ranking de clans, lista, informações e menu clicável.
-- Proteção de comandos com cargos e permissões.
-- Compatível com clientes Java e Bedrock por ser server-side; o menu usa inventário padrão.
+- Convites temporários com aceitar/recusar.
+- Expulsar, promover/rebaixar, transferir liderança e dissolver com confirmação.
+- Chat de clan fixo ou temporário.
+- Base com teleporte atrasado, cancelável por movimento/dano (configurável).
+- Alianças com pedido/aceite e proteção de fogo amigo.
+- Guerras entre clans, anúncios e pontos por eliminações entre clans em guerra.
+- Fogo amigo configurável.
+- Estatísticas de kills/mortes individuais e por membro.
+- Ranking, lista, informações e menu clicável.
+- Tag pequena ✦ [TAG] ao lado do nome na lista de jogadores, configurável.
 
-## Comandos
+## Chat e social QoL
+- /clanchat alterna para chat exclusivo do clan.
+- /clanchat on|off define o modo explicitamente.
+- /g volta imediatamente ao chat global.
+- /msg <jogador> <mensagem> envia mensagem privada.
+- /tell, /w e /whisper também são interceptados para aplicar os filtros do plugin.
+- /r <mensagem> ou /reply <mensagem> responde à última conversa privada.
+- /ignore <jogador> bloqueia mensagens globais, de clan e privadas desse jogador.
+- /unignore <jogador> remove o bloqueio.
+- /ignorelist lista os bloqueios.
+- /chat abre um menu de preferências.
+- /chat toggle <opção> alterna uma preferência pelo comando.
+
+## Preferências individuais (salvas em clans.yml)
+- Chat global.
+- Chat de clan.
+- Mensagens privadas.
+- Avisos de entrada/saída do clan.
+- Convites de clan.
+- Diplomacia/alianças.
+- Guerras e pontos.
+- Anúncios.
+
+Todas as preferências começam ativadas. Cada jogador pode desligar apenas o que não quer receber.
+
+## Comandos principais
 - /clan criar <TAG> <nome>
 - /clan menu
 - /clan info [TAG], /clan membros, /clan list, /clan top
@@ -28,15 +52,17 @@ Plugin de clans para Paper 26.3 / Java 25. Desenvolvido para o Pura-Resenha.
 - /clan transferir <jogador>, /clan sair, /clan dissolver confirm
 - /clan desc <texto>, /clan anunciar <mensagem>
 - /clan sethome, /clan home
-- /clan chat, /clan c <mensagem>
 - /clan friendlyfire <on|off>
 - /clan ally <TAG>, /clan allyaccept <TAG>, /clan unally <TAG>, /clan allies
 - /clan guerra <TAG>, /clan peace <TAG>
-- /clan stats [jogador]
-- /clan reload (OP)
+- /clan stats [jogador], /clan reload
 
-## Observações
-- O armazenamento é YAML e é salvo a cada alteração. Faça backup de clans.yml antes de reinstalar ou atualizar.
-- Pontos de clan são obtidos por eliminações de jogadores pertencentes a clans em guerra.
-- Guerras não criam arenas nem regiões de batalha; o PVP normal do servidor continua ativo.
-- Proteção territorial, banco de clan, baús compartilhados, temporadas, recompensas, torneios e logs administrativos são ideias para versões futuras.
+## Instalação e dados
+- Paper 26.3 / Java 25.
+- Server-side; não exige mod nos clientes. Menus usam inventários padrão, compatíveis com clientes Bedrock via Geyser em princípio.
+- Dados persistidos em plugins/ResenhaClans/clans.yml.
+- Faça backup de clans.yml antes de atualizar.
+- A compilação não substitui teste funcional em servidor real.
+
+## Próximas ideias
+Proteção territorial, banco de clan, baús compartilhados, temporadas, recompensas, torneios, histórico de mensagens e logs administrativos.
