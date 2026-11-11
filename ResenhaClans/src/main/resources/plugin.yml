@@ -1,5 +1,5 @@
 name: ResenhaClans
-version: '1.1.1'
+version: '1.2.0'
 main: br.com.puraresenha.resenhaclans.ResenhaClansPlugin
 api-version: '26.3'
 description: Sistema de clans e chat social com filtros, mensagens privadas, alianças e guerras.
