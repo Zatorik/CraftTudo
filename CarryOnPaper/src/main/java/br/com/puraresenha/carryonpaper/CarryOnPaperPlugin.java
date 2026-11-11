@@ -38,6 +38,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.inventory.CookingRecipe;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
@@ -820,6 +821,50 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                     restoreMobFlags(mob);
                 }
             }
+        }
+    }
+
+    // Entidades marcadas podem voltar a carregar depois do início do servidor.
+    // Recuperá-las no evento de carga evita que um mob fique indefinidamente sem IA
+    // quando o chunk não estava carregado durante recoverOrphanedMobs().
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntitiesLoad(EntitiesLoadEvent event) {
+        for (Entity entity : event.getEntities()) {
+            if (!(entity instanceof Mob mob)) {
+                continue;
+            }
+
+            Bukkit.getScheduler().runTask(this, () -> {
+                if (!mob.isValid() || mob.isDead() || !isMobMarked(mob)) {
+                    return;
+                }
+
+                if (mob.getVehicle() instanceof Player player) {
+                    carriedMobs.put(player.getUniqueId(), mob);
+                    return;
+                }
+
+                Location safe;
+                if (requiresWater(mob.getType())) {
+                    Location origin = getSavedMobOrigin(mob);
+                    safe = origin == null ? null : findSafeWaterLocation(mob, origin.getWorld(), origin);
+                } else {
+                    safe = findSafeLocation(mob.getWorld(), mob.getLocation());
+                }
+
+                if (safe == null) {
+                    getLogger().warning("Mob transportado aguardando local seguro após carregar chunk: " + mob.getUniqueId());
+                    return;
+                }
+
+                if (mob.getVehicle() != null) {
+                    mob.leaveVehicle();
+                }
+                mob.teleport(safe);
+                mob.setVelocity(new Vector(0, 0, 0));
+                mob.setFallDistance(0);
+                restoreMobFlags(mob);
+            });
         }
     }
 
