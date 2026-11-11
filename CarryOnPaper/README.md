@@ -1,4 +1,4 @@
-# CarryOnPaper 1.2.0
+# CarryOnPaper 1.3.0
 
 Plugin server-side para Paper 26.3, Java 25.
 
@@ -20,9 +20,12 @@ Mobs aquáticos só podem ser capturados na água e só são soltos dentro de um
 ## Preservação de dados dos mobs
 - Salva e restaura mão principal, mão secundária e armaduras de entidades vivas.
 - Salva e restaura o inventário de cavalos, burros, mulas e lhamas, incluindo sela, armadura, decoração e baús quando expostos pelo inventário da montaria.
-- Para aldeões, salva profissão, tipo, nível, experiência, contador diário de reposições, ofertas comerciais e inventário próprio.
-- A cópia temporária fica nos dados persistentes da entidade e só é removida depois de uma restauração bem-sucedida.
+- Para porcos e striders, salva o estado da sela e os tempos de impulso.
+- Para aldeões, salva profissão, tipo, nível, experiência, contador diário de reposições, ofertas comerciais, inventário, reputações por jogador e memórias de estação de trabalho, ponto de encontro e casa quando disponíveis.
+- A cópia fica tanto nos dados persistentes da entidade quanto em `plugins/CarryOnPaper/mob-backups.yml`, para não depender exclusivamente do PDC.
+- A cópia externa é removida somente depois da restauração dos dados e das propriedades originais do mob.
 - Se a restauração falhar, o mob continua marcado e protegido para nova tentativa, em vez de apagar a cópia.
+- Se o PDC da entidade perder a snapshot, o plugin tenta recuperá-la pelo UUID usando o arquivo externo quando a entidade voltar a carregar.
 
 ## Blocos
 Lista fechada:
@@ -46,9 +49,9 @@ O plugin recusa blocos abertos, trancados ou com loot table aleatória. Guarda i
 - Feito para Paper 26.3 com Java 25.
 - Não exige mod nos clientes.
 - Geyser/Bedrock precisa ser validado em teste real.
-- A compilação valida compatibilidade de código, mas não substitui testes reais de comportamento no Minecraft. Esta versão ainda precisa de teste controlado para confirmar que os dados continuam íntegros em transporte, desconexão e reinício.
+- A compilação valida compatibilidade de código, mas não substitui testes reais de comportamento no Minecraft. A cópia externa protege os dados enquanto a entidade ainda puder ser localizada pelo UUID. Ela não recria automaticamente uma entidade que tenha sido permanentemente removida do mundo, pois isso poderia gerar duplicatas quando um chunk estivesse apenas descarregado. Esta versão ainda precisa de teste controlado para confirmar o comportamento em transporte, desconexão e reinício.
 
 ## Instalação
-Coloque CarryOnPaper-1.2.0.jar na pasta plugins/ e reinicie o servidor.
+Coloque CarryOnPaper-1.3.0.jar na pasta plugins/ e reinicie o servidor.
 
 Permissão: carryonpaper.use (padrão: todos).
