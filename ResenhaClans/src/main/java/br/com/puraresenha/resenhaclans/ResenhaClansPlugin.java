@@ -363,14 +363,16 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPendingTeleportDamage(EntityDamageEvent event) {
-        if (event.getEntity() instanceof Player player && pendingTeleports.containsKey(player.getUniqueId())) {
+        if (getConfig().getBoolean("home.cancel-on-damage", true)
+                && event.getEntity() instanceof Player player
+                && pendingTeleports.containsKey(player.getUniqueId())) {
             cancelPendingTeleport(player.getUniqueId(), "Teleporte cancelado: você recebeu dano.");
         }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onMove(PlayerMoveEvent event) {
-        if (event.getTo() == null) return;
+        if (!getConfig().getBoolean("home.cancel-on-move", true) || event.getTo() == null) return;
         if (event.getFrom().getBlockX() == event.getTo().getBlockX()
                 && event.getFrom().getBlockY() == event.getTo().getBlockY()
                 && event.getFrom().getBlockZ() == event.getTo().getBlockZ()) return;
@@ -656,6 +658,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         Location target = new Location(world, clan.home.x, clan.home.y, clan.home.z, clan.home.yaw, clan.home.pitch);
         int delay = Math.max(0, getConfig().getInt("home.teleport-delay-seconds", 3));
         Location origin = player.getLocation().clone();
+        boolean cancelOnMove = getConfig().getBoolean("home.cancel-on-move", true);
         UUID clanId = clan.id;
         if (delay == 0) { player.teleport(target); return; }
         player.sendMessage(Component.text("Teleportando em " + delay + " segundos. Não se mova e não receba dano.", NamedTextColor.YELLOW));
@@ -666,7 +669,8 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             if (currentClan == null || !currentClan.id.equals(clanId)) {
                 player.sendMessage(Component.text("Teleporte cancelado: seu clan mudou.", NamedTextColor.RED)); return;
             }
-            if (player.getWorld() != origin.getWorld() || player.getLocation().distanceSquared(origin) > 0.04) {
+            if (player.getWorld() != origin.getWorld()
+                    || (cancelOnMove && player.getLocation().distanceSquared(origin) > 0.04)) {
                 player.sendMessage(Component.text("Teleporte cancelado: sua posição mudou.", NamedTextColor.RED)); return;
             }
             player.teleport(target);
