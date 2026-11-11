@@ -61,6 +61,9 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
     private final Map<String, Relation> relations = new HashMap<>();
     private final Set<UUID> clanChat = ConcurrentHashMap.newKeySet();
     private final Map<UUID, PendingTeleport> pendingTeleports = new HashMap<>();
+    private final Map<UUID, PlayerSettings> playerSettings = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> lastTellTarget = new ConcurrentHashMap<>();
+    private final Map<UUID, String> clanTagsSnapshot = new ConcurrentHashMap<>();
 
     private File dataFile;
     private NamespacedKey menuActionKey;
@@ -86,6 +89,16 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         }
         getCommand("clan").setExecutor(this);
         getCommand("clan").setTabCompleter(this);
+        for (String commandName : List.of("clanchat", "g", "msg", "reply", "ignore", "unignore", "ignorelist", "chat")) {
+            if (getCommand(commandName) == null) {
+                getLogger().severe("Comando /" + commandName + " não está definido em plugin.yml.");
+                getServer().getPluginManager().disablePlugin(this);
+                return;
+            }
+            getCommand(commandName).setExecutor(this);
+            getCommand(commandName).setTabCompleter(this);
+        }
+        for (Player online : Bukkit.getOnlinePlayers()) updateTabName(online);
         getLogger().info("ResenhaClans " + getDescription().getVersion() + " carregado. Clans: " + clans.size());
     }
 
@@ -103,6 +116,8 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         playerStats.clear();
         invites.clear();
         relations.clear();
+        playerSettings.clear();
+        clanTagsSnapshot.clear();
         YamlConfiguration stored = YamlConfiguration.loadConfiguration(dataFile);
 
         ConfigurationSection clanSection = stored.getConfigurationSection("clans");
@@ -213,8 +228,38 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             }
         }
 
+        ConfigurationSection preferencesSection = stored.getConfigurationSection("preferences");
+        if (preferencesSection != null) {
+            for (String rawPlayerId : preferencesSection.getKeys(false)) {
+                try {
+                    UUID playerId = UUID.fromString(rawPlayerId);
+                    ConfigurationSection section = preferencesSection.getConfigurationSection(rawPlayerId);
+                    if (section == null) continue;
+                    PlayerSettings settings = new PlayerSettings();
+                    settings.globalChat = section.getBoolean("global-chat", true);
+                    settings.clanChat = section.getBoolean("clan-chat", true);
+                    settings.receiveTells = section.getBoolean("receive-tells", true);
+                    settings.activity = section.getBoolean("activity", true);
+                    settings.invites = section.getBoolean("invites", true);
+                    settings.diplomacy = section.getBoolean("diplomacy", true);
+                    settings.wars = section.getBoolean("wars", true);
+                    settings.announcements = section.getBoolean("announcements", true);
+                    for (String rawIgnored : section.getStringList("ignored")) {
+                        try { settings.ignored.add(UUID.fromString(rawIgnored)); }
+                        catch (IllegalArgumentException ignored) { getLogger().warning("UUID bloqueado inválido em " + rawPlayerId); }
+                    }
+                    playerSettings.put(playerId, settings);
+                } catch (IllegalArgumentException exception) {
+                    getLogger().warning("Preferências inválidas ignoradas: " + rawPlayerId);
+                }
+            }
+        }
+
         Set<UUID> assigned = new HashSet<>();
-        for (Clan clan : clans.values()) clan.members.keySet().removeIf(memberId -> !assigned.add(memberId));
+        for (Clan clan : clans.values()) {
+            clan.members.keySet().removeIf(memberId -> !assigned.add(memberId));
+            for (UUID memberId : clan.members.keySet()) clanTagsSnapshot.put(memberId, clan.tag);
+        }
         long now = System.currentTimeMillis();
         invites.values().forEach(map -> map.values().removeIf(invite -> invite.expiresAt <= now));
         invites.values().removeIf(Map::isEmpty);
@@ -271,6 +316,19 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             out.set(base + ".type", relation.type.name());
             out.set(base + ".requested-by", relation.requestedBy.toString());
         }
+        for (Map.Entry<UUID, PlayerSettings> entry : playerSettings.entrySet()) {
+            String base = "preferences." + entry.getKey();
+            PlayerSettings settings = entry.getValue();
+            out.set(base + ".global-chat", settings.globalChat);
+            out.set(base + ".clan-chat", settings.clanChat);
+            out.set(base + ".receive-tells", settings.receiveTells);
+            out.set(base + ".activity", settings.activity);
+            out.set(base + ".invites", settings.invites);
+            out.set(base + ".diplomacy", settings.diplomacy);
+            out.set(base + ".wars", settings.wars);
+            out.set(base + ".announcements", settings.announcements);
+            out.set(base + ".ignored", settings.ignored.stream().map(UUID::toString).toList());
+        }
 
         File temp = new File(getDataFolder(), "clans.yml.tmp");
         try {
@@ -294,19 +352,21 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         stats.name = player.getName();
         Clan clan = findClan(player.getUniqueId());
         if (clan != null && clan.members.containsKey(player.getUniqueId())) clan.members.get(player.getUniqueId()).lastName = player.getName();
+        updateTabName(player);
         saveData();
         if (clan != null && getConfig().getBoolean("messages.join-quit", true)) {
-            broadcastClan(clan, Component.text(player.getName() + " entrou no servidor.", NamedTextColor.GRAY));
+            broadcastClanPreference(clan, Component.text(player.getName() + " entrou no servidor.", NamedTextColor.GRAY), "activity");
         }
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         clanChat.remove(event.getPlayer().getUniqueId());
+        lastTellTarget.remove(event.getPlayer().getUniqueId());
         cancelPendingTeleport(event.getPlayer().getUniqueId(), null);
         Clan clan = findClan(event.getPlayer().getUniqueId());
         if (clan != null && getConfig().getBoolean("messages.join-quit", true)) {
-            broadcastClan(clan, Component.text(event.getPlayer().getName() + " saiu do servidor.", NamedTextColor.GRAY));
+            broadcastClanPreference(clan, Component.text(event.getPlayer().getName() + " saiu do servidor.", NamedTextColor.GRAY), "activity");
         }
     }
 
@@ -354,7 +414,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
                 Relation relation = getRelation(killerClan.id, victimClan.id);
                 if (relation != null && relation.type == RelationType.WAR) {
                     killerClan.points++;
-                    broadcastClan(killerClan, Component.text("+1 ponto de guerra por eliminar " + victim.getName() + ".", NamedTextColor.GOLD));
+                    broadcastClanPreference(killerClan, Component.text("+1 ponto de guerra por eliminar " + victim.getName() + ".", NamedTextColor.GOLD), "wars");
                 }
             }
         }
@@ -381,27 +441,55 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onClanChat(AsyncChatEvent event) {
-        UUID senderId = event.getPlayer().getUniqueId();
-        if (!clanChat.contains(senderId)) return;
-        event.setCancelled(true);
-        Component message = event.message();
-        Bukkit.getScheduler().runTask(this, () -> {
-            Player sender = Bukkit.getPlayer(senderId);
-            if (sender == null || !sender.isOnline()) return;
-            Clan clan = findClan(senderId);
-            if (clan == null) {
-                clanChat.remove(senderId);
-                sender.sendMessage(Component.text("Você não pertence a um clan.", NamedTextColor.RED));
-                return;
-            }
-            Component formatted = Component.text("[CLAN] ", NamedTextColor.GOLD)
-                    .append(Component.text("[" + clan.tag + "] ", NamedTextColor.YELLOW))
-                    .append(Component.text(sender.getName() + ": ", NamedTextColor.WHITE))
-                    .append(message);
-            broadcastClan(clan, formatted);
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onChat(AsyncChatEvent event) {
+        Player sender = event.getPlayer();
+        UUID senderId = sender.getUniqueId();
+
+        if (clanChat.contains(senderId)) {
+            event.setCancelled(true);
+            Component message = event.message();
+            Bukkit.getScheduler().runTask(this, () -> deliverClanChat(senderId, message));
+            return;
+        }
+
+        // Preferences and the tag cache are concurrent because player chat may be asynchronous.
+        event.viewers().removeIf(viewer -> {
+            if (!(viewer instanceof Player recipient)) return false;
+            PlayerSettings prefs = settings(recipient.getUniqueId());
+            return !prefs.globalChat || prefs.ignored.contains(senderId);
         });
+
+        String tag = clanTagsSnapshot.get(senderId);
+        event.renderer((source, sourceDisplayName, message, viewer) -> {
+            Component display = tag == null ? sourceDisplayName :
+                    Component.text("[" + tag + "] ", NamedTextColor.GOLD).append(sourceDisplayName);
+            return display.append(Component.text(" » ", NamedTextColor.DARK_GRAY)).append(message);
+        });
+    }
+
+    private void deliverClanChat(UUID senderId, Component message) {
+        Player sender = Bukkit.getPlayer(senderId);
+        if (sender == null || !sender.isOnline()) return;
+        Clan clan = findClan(senderId);
+        if (clan == null) {
+            clanChat.remove(senderId);
+            error(sender, "Você não pertence a um clan. Use /g para voltar ao chat global.");
+            return;
+        }
+
+        Component formatted = Component.text("[CLAN] ", NamedTextColor.GOLD)
+                .append(Component.text("[" + clan.tag + "] ", NamedTextColor.YELLOW))
+                .append(Component.text(sender.getName() + " » ", NamedTextColor.WHITE))
+                .append(message);
+        for (UUID memberId : clan.members.keySet()) {
+            Player recipient = Bukkit.getPlayer(memberId);
+            if (recipient == null) continue;
+            PlayerSettings prefs = settings(memberId);
+            if (memberId.equals(senderId) || (prefs.clanChat && !prefs.ignored.contains(senderId))) {
+                recipient.sendMessage(formatted);
+            }
+        }
     }
 
     // --------------------------- Comando /clan ---------------------------
@@ -412,6 +500,50 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             sendHelp(sender);
             return true;
         }
+        String commandName = command.getName().toLowerCase(Locale.ROOT);
+        if (commandName.equals("clanchat")) {
+            if (!(sender instanceof Player player)) { error(sender, "Somente jogadores podem usar o chat de clan."); return true; }
+            toggleClanChat(player, args);
+            return true;
+        }
+        if (commandName.equals("g")) {
+            if (!(sender instanceof Player player)) { error(sender, "Somente jogadores podem usar o chat global."); return true; }
+            clanChat.remove(player.getUniqueId());
+            success(player, "Chat global ativado. Suas próximas mensagens irão para todos.");
+            return true;
+        }
+        if (commandName.equals("msg")) {
+            if (!(sender instanceof Player player)) { error(sender, "Somente jogadores podem enviar mensagens privadas."); return true; }
+            sendPrivateMessage(player, args);
+            return true;
+        }
+        if (commandName.equals("reply")) {
+            if (!(sender instanceof Player player)) { error(sender, "Somente jogadores podem responder mensagens."); return true; }
+            replyPrivateMessage(player, args);
+            return true;
+        }
+        if (commandName.equals("ignore")) {
+            if (!(sender instanceof Player player)) { error(sender, "Somente jogadores podem bloquear mensagens."); return true; }
+            ignorePlayer(player, args);
+            return true;
+        }
+        if (commandName.equals("unignore")) {
+            if (!(sender instanceof Player player)) { error(sender, "Somente jogadores podem desbloquear mensagens."); return true; }
+            unignorePlayer(player, args);
+            return true;
+        }
+        if (commandName.equals("ignorelist")) {
+            if (!(sender instanceof Player player)) { error(sender, "Somente jogadores podem ver sua lista de bloqueios."); return true; }
+            showIgnoreList(player);
+            return true;
+        }
+        if (commandName.equals("chat")) {
+            if (!(sender instanceof Player player)) { error(sender, "Somente jogadores podem abrir as configurações de chat."); return true; }
+            if (args.length >= 2 && args[0].equalsIgnoreCase("toggle")) toggleChatPreference(player, args[1]);
+            else openChatSettings(player);
+            return true;
+        }
+
         String sub = args[0].toLowerCase(Locale.ROOT);
         if (sub.equals("reload")) {
             if (!sender.hasPermission("resenhaclans.admin")) { error(sender, "Você não tem permissão."); return true; }
@@ -447,7 +579,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             case "announce", "anunciar" -> announce(player, clan, args);
             case "sethome" -> setHome(player, clan);
             case "home" -> goHome(player, clan);
-            case "chat" -> toggleClanChat(player, clan);
+            case "chat" -> toggleClanChat(player, new String[0]);
             case "c" -> sendClanMessage(player, clan, args);
             case "friendlyfire" -> setFriendlyFire(player, clan, args);
             case "ally", "aliar" -> requestAlliance(player, clan, args);
@@ -476,6 +608,8 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         clan.members.put(player.getUniqueId(), new Member(Rank.LEADER, player.getName(), 0, 0, now));
         clans.put(clan.id, clan);
         getPlayerStats(player.getUniqueId(), player.getName());
+        clanTagsSnapshot.put(player.getUniqueId(), clan.tag);
+        updateTabName(player);
         saveData();
         player.sendMessage(Component.text("Clan [" + tag + "] " + name + " criado com sucesso!", NamedTextColor.GREEN));
         player.sendMessage(Component.text("Você é o líder. Use /clan menu para começar.", NamedTextColor.YELLOW));
@@ -489,6 +623,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         if (target == null) { error(actor, "Esse jogador precisa estar online."); return; }
         if (findClan(target.getUniqueId()) != null) { error(actor, "Esse jogador já pertence a um clan."); return; }
         if (clan.members.size() >= getConfig().getInt("clan.max-members", 20)) { error(actor, "O clan atingiu o limite de membros."); return; }
+        if (!settings(target.getUniqueId()).invites) { error(actor, "Esse jogador desativou notificações de convites."); return; }
         long expiry = System.currentTimeMillis() + getConfig().getLong("invites.expire-seconds", 300) * 1000L;
         invites.computeIfAbsent(target.getUniqueId(), ignored -> new HashMap<>()).put(clan.id, new Invite(actor.getUniqueId(), expiry));
         saveData();
@@ -515,6 +650,8 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         available.remove(clanId);
         if (available.isEmpty()) invites.remove(player.getUniqueId());
         getPlayerStats(player.getUniqueId(), player.getName());
+        clanTagsSnapshot.put(player.getUniqueId(), clan.tag);
+        updateTabName(player);
         saveData();
         player.sendMessage(Component.text("Você entrou no clan [" + clan.tag + "]!", NamedTextColor.GREEN));
         broadcastClan(clan, Component.text(player.getName() + " entrou para o clan.", NamedTextColor.GREEN));
@@ -549,6 +686,8 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         if (clan.leader.equals(player.getUniqueId())) { error(player, "O líder precisa transferir a liderança ou dissolver o clan."); return; }
         clan.members.remove(player.getUniqueId());
         clanChat.remove(player.getUniqueId());
+        clanTagsSnapshot.remove(player.getUniqueId());
+        player.playerListName(null);
         saveData();
         player.sendMessage(Component.text("Você saiu do clan [" + clan.tag + "].", NamedTextColor.YELLOW));
         broadcastClan(clan, Component.text(player.getName() + " saiu do clan.", NamedTextColor.GRAY));
@@ -567,9 +706,13 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         }
         clan.members.remove(targetId);
         clanChat.remove(targetId);
+        clanTagsSnapshot.remove(targetId);
         saveData();
         Player target = Bukkit.getPlayer(targetId);
-        if (target != null) target.sendMessage(Component.text("Você foi removido do clan [" + clan.tag + "].", NamedTextColor.RED));
+        if (target != null) {
+            target.playerListName(null);
+            target.sendMessage(Component.text("Você foi removido do clan [" + clan.tag + "].", NamedTextColor.RED));
+        }
         broadcastClan(clan, Component.text(args[1] + " foi removido do clan.", NamedTextColor.YELLOW));
     }
 
@@ -611,8 +754,12 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         Component message = Component.text("O clan [" + clan.tag + "] foi dissolvido.", NamedTextColor.RED);
         for (UUID member : clan.members.keySet()) {
             Player online = Bukkit.getPlayer(member);
-            if (online != null) online.sendMessage(message);
+            if (online != null) {
+                online.sendMessage(message);
+                online.playerListName(null);
+            }
             clanChat.remove(member);
+            clanTagsSnapshot.remove(member);
         }
         clans.remove(clan.id);
         relations.values().removeIf(relation -> relation.a.equals(clan.id) || relation.b.equals(clan.id));
@@ -637,7 +784,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         if (!hasRole(clan, actor.getUniqueId(), Rank.COLEADER)) { error(actor, "Somente líder ou colíder pode anunciar."); return; }
         if (args.length < 2) { error(actor, "Uso: /clan anunciar <mensagem>"); return; }
         Component message = Component.text("[ANÚNCIO] [" + clan.tag + "] " + joinArgs(args, 1), NamedTextColor.GOLD);
-        for (Player online : Bukkit.getOnlinePlayers()) online.sendMessage(message);
+        broadcastGlobalPreference(message, "announcements");
     }
 
     private void setHome(Player player, Clan clan) {
@@ -725,8 +872,8 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         if (current != null) { error(actor, current.type == RelationType.ALLY ? "Vocês já são aliados." : "Já existe uma relação ativa ou pendente com esse clan."); return; }
         relations.put(relationKey(clan.id, other.id), new Relation(clan.id, other.id, RelationType.ALLY_PENDING, clan.id));
         saveData();
-        broadcastClan(clan, Component.text("Proposta de aliança enviada para [" + other.tag + "].", NamedTextColor.GREEN));
-        broadcastClan(other, Component.text("O clan [" + clan.tag + "] propôs uma aliança. Líder/colíder: /clan allyaccept " + clan.tag, NamedTextColor.GOLD));
+        broadcastClanPreference(clan, Component.text("Proposta de aliança enviada para [" + other.tag + "].", NamedTextColor.GREEN), "diplomacy");
+        broadcastClanPreference(other, Component.text("O clan [" + clan.tag + "] propôs uma aliança. Líder/colíder: /clan allyaccept " + clan.tag, NamedTextColor.GOLD), "diplomacy");
     }
 
     private void acceptAlliance(Player actor, Clan clan, String[] args) {
@@ -742,8 +889,8 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         relation.type = RelationType.ALLY;
         relation.requestedBy = clan.id;
         saveData();
-        broadcastClan(clan, Component.text("Aliança formada com [" + other.tag + "]!", NamedTextColor.GREEN));
-        broadcastClan(other, Component.text("Aliança formada com [" + clan.tag + "]!", NamedTextColor.GREEN));
+        broadcastClanPreference(clan, Component.text("Aliança formada com [" + other.tag + "]!", NamedTextColor.GREEN), "diplomacy");
+        broadcastClanPreference(other, Component.text("Aliança formada com [" + clan.tag + "]!", NamedTextColor.GREEN), "diplomacy");
     }
 
     private void removeAlliance(Player actor, Clan clan, String[] args) {
@@ -756,8 +903,8 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         if (relation == null || relation.type != RelationType.ALLY) { error(actor, "Vocês não são aliados."); return; }
         relations.remove(relationKey(clan.id, other.id));
         saveData();
-        broadcastClan(clan, Component.text("Aliança com [" + other.tag + "] encerrada.", NamedTextColor.YELLOW));
-        broadcastClan(other, Component.text("A aliança com [" + clan.tag + "] foi encerrada.", NamedTextColor.YELLOW));
+        broadcastClanPreference(clan, Component.text("Aliança com [" + other.tag + "] encerrada.", NamedTextColor.YELLOW), "diplomacy");
+        broadcastClanPreference(other, Component.text("A aliança com [" + clan.tag + "] foi encerrada.", NamedTextColor.YELLOW), "diplomacy");
     }
 
     private void showAllies(Player player, Clan clan) {
@@ -780,7 +927,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         relations.put(relationKey(clan.id, other.id), new Relation(clan.id, other.id, RelationType.WAR, clan.id));
         saveData();
         Component announcement = Component.text("GUERRA DECLARADA: [" + clan.tag + "] x [" + other.tag + "]", NamedTextColor.RED, TextDecoration.BOLD);
-        for (Player online : Bukkit.getOnlinePlayers()) online.sendMessage(announcement);
+        broadcastGlobalPreference(announcement, "wars");
     }
 
     private void endWar(Player actor, Clan clan, String[] args) {
@@ -794,7 +941,239 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         relations.remove(relationKey(clan.id, other.id));
         saveData();
         Component announcement = Component.text("GUERRA ENCERRADA: [" + clan.tag + "] x [" + other.tag + "]", NamedTextColor.GREEN);
-        for (Player online : Bukkit.getOnlinePlayers()) online.sendMessage(announcement);
+        broadcastGlobalPreference(announcement, "wars");
+    }
+
+    // -------------------------- QoL do chat -----------------------------
+
+    private PlayerSettings settings(UUID playerId) {
+        return playerSettings.computeIfAbsent(playerId, ignored -> new PlayerSettings());
+    }
+
+    private void toggleClanChat(Player player, String[] args) {
+        if (findClan(player.getUniqueId()) == null) {
+            clanChat.remove(player.getUniqueId());
+            error(player, "Você não pertence a um clan.");
+            return;
+        }
+        if (args.length >= 2 && args[1].equalsIgnoreCase("on")) {
+            clanChat.add(player.getUniqueId());
+        } else if (args.length >= 2 && args[1].equalsIgnoreCase("off")) {
+            clanChat.remove(player.getUniqueId());
+        } else if (!clanChat.add(player.getUniqueId())) {
+            clanChat.remove(player.getUniqueId());
+        }
+        player.sendMessage(Component.text(clanChat.contains(player.getUniqueId())
+                ? "Chat do clan ativado. Use /g para voltar ao global."
+                : "Chat global ativado.", NamedTextColor.GREEN));
+    }
+
+    private void sendPrivateMessage(Player sender, String[] args) {
+        if (args.length < 2) {
+            error(sender, "Uso: /msg <jogador> <mensagem>");
+            return;
+        }
+        Player target = Bukkit.getPlayerExact(args[0]);
+        if (target == null) {
+            error(sender, "Jogador não encontrado ou offline.");
+            return;
+        }
+        sendPrivateMessage(sender, target, joinArgs(args, 1));
+    }
+
+    private void sendPrivateMessage(Player sender, Player target, String message) {
+        if (sender.equals(target)) {
+            error(sender, "Você não pode mandar mensagem para si mesmo.");
+            return;
+        }
+        if (message == null || message.isBlank()) {
+            error(sender, "Escreva uma mensagem.");
+            return;
+        }
+        PlayerSettings senderPrefs = settings(sender.getUniqueId());
+        PlayerSettings targetPrefs = settings(target.getUniqueId());
+        if (senderPrefs.ignored.contains(target.getUniqueId())) {
+            error(sender, "Você bloqueou esse jogador. Use /unignore " + target.getName() + " para desbloquear.");
+            return;
+        }
+        if (targetPrefs.ignored.contains(sender.getUniqueId())) {
+            error(sender, "Esse jogador não está recebendo suas mensagens.");
+            return;
+        }
+        if (!targetPrefs.receiveTells) {
+            error(sender, "Esse jogador desativou mensagens privadas.");
+            return;
+        }
+
+        Component from = Component.text("[PV] Você → " + target.getName() + ": ", NamedTextColor.LIGHT_PURPLE)
+                .append(Component.text(message, NamedTextColor.WHITE));
+        Component to = Component.text("[PV] " + sender.getName() + " → você: ", NamedTextColor.LIGHT_PURPLE)
+                .append(Component.text(message, NamedTextColor.WHITE));
+        sender.sendMessage(from);
+        target.sendMessage(to);
+        lastTellTarget.put(sender.getUniqueId(), target.getUniqueId());
+        lastTellTarget.put(target.getUniqueId(), sender.getUniqueId());
+    }
+
+    private void replyPrivateMessage(Player sender, String[] args) {
+        if (args.length == 0) {
+            error(sender, "Uso: /r <mensagem>");
+            return;
+        }
+        UUID targetId = lastTellTarget.get(sender.getUniqueId());
+        Player target = targetId == null ? null : Bukkit.getPlayer(targetId);
+        if (target == null) {
+            lastTellTarget.remove(sender.getUniqueId());
+            error(sender, "Você ainda não tem uma conversa para responder.");
+            return;
+        }
+        sendPrivateMessage(sender, target, joinArgs(args, 0));
+    }
+
+    private UUID resolvePlayerId(String name) {
+        Player online = Bukkit.getPlayerExact(name);
+        if (online != null) return online.getUniqueId();
+        OfflinePlayer cached = Bukkit.getOfflinePlayerIfCached(name);
+        return cached != null && cached.hasPlayedBefore() ? cached.getUniqueId() : null;
+    }
+
+    private void ignorePlayer(Player player, String[] args) {
+        if (args.length < 1) { error(player, "Uso: /ignore <jogador>"); return; }
+        UUID targetId = resolvePlayerId(args[0]);
+        if (targetId == null) { error(player, "Jogador não encontrado no histórico do servidor."); return; }
+        if (targetId.equals(player.getUniqueId())) { error(player, "Você não pode bloquear a si mesmo."); return; }
+        PlayerSettings prefs = settings(player.getUniqueId());
+        if (!prefs.ignored.add(targetId)) { error(player, "Esse jogador já está bloqueado."); return; }
+        saveData();
+        success(player, "Mensagens de " + nameOf(targetId) + " bloqueadas.");
+    }
+
+    private void unignorePlayer(Player player, String[] args) {
+        if (args.length < 1) { error(player, "Uso: /unignore <jogador>"); return; }
+        UUID targetId = resolvePlayerId(args[0]);
+        if (targetId == null) { error(player, "Jogador não encontrado no histórico do servidor."); return; }
+        PlayerSettings prefs = settings(player.getUniqueId());
+        if (!prefs.ignored.remove(targetId)) { error(player, "Esse jogador não está bloqueado."); return; }
+        saveData();
+        success(player, "Mensagens de " + nameOf(targetId) + " desbloqueadas.");
+    }
+
+    private void showIgnoreList(Player player) {
+        Set<UUID> ignored = settings(player.getUniqueId()).ignored;
+        if (ignored.isEmpty()) {
+            player.sendMessage(Component.text("Sua lista de bloqueios está vazia.", NamedTextColor.GRAY));
+            return;
+        }
+        player.sendMessage(Component.text("Jogadores bloqueados (" + ignored.size() + "): " +
+                ignored.stream().map(this::nameOf).sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.joining(", ")),
+                NamedTextColor.GOLD));
+    }
+
+    private void toggleChatPreference(Player player, String key) {
+        PlayerSettings prefs = settings(player.getUniqueId());
+        String normalized = key.toLowerCase(Locale.ROOT);
+        switch (normalized) {
+            case "global" -> prefs.globalChat = !prefs.globalChat;
+            case "clan" -> prefs.clanChat = !prefs.clanChat;
+            case "tell", "pv", "privado" -> prefs.receiveTells = !prefs.receiveTells;
+            case "activity", "atividade" -> prefs.activity = !prefs.activity;
+            case "invites", "convites" -> prefs.invites = !prefs.invites;
+            case "diplomacy", "diplomacia" -> prefs.diplomacy = !prefs.diplomacy;
+            case "wars", "guerras" -> prefs.wars = !prefs.wars;
+            case "announcements", "anuncios" -> prefs.announcements = !prefs.announcements;
+            default -> { error(player, "Opções: global, clan, tell, activity, invites, diplomacy, wars, announcements."); return; }
+        }
+        saveData();
+        success(player, preferenceLabel(normalized) + ": " +
+                (preferenceEnabled(prefs, normalized) ? "ativado" : "desativado") + ".");
+    }
+
+    private boolean preferenceEnabled(PlayerSettings prefs, String key) {
+        return switch (key.toLowerCase(Locale.ROOT)) {
+            case "global" -> prefs.globalChat;
+            case "clan" -> prefs.clanChat;
+            case "tell", "pv", "privado" -> prefs.receiveTells;
+            case "activity", "atividade" -> prefs.activity;
+            case "invites", "convites" -> prefs.invites;
+            case "diplomacy", "diplomacia" -> prefs.diplomacy;
+            case "wars", "guerras" -> prefs.wars;
+            case "announcements", "anuncios" -> prefs.announcements;
+            default -> true;
+        };
+    }
+
+    private String preferenceLabel(String key) {
+        return switch (key.toLowerCase(Locale.ROOT)) {
+            case "global" -> "Chat global";
+            case "clan" -> "Chat do clan";
+            case "tell", "pv", "privado" -> "Mensagens privadas";
+            case "activity", "atividade" -> "Avisos de entrada/saída";
+            case "invites", "convites" -> "Convites de clan";
+            case "diplomacy", "diplomacia" -> "Alianças";
+            case "wars", "guerras" -> "Guerras e pontos";
+            case "announcements", "anuncios" -> "Anúncios";
+            default -> key;
+        };
+    }
+
+    private void openChatSettings(Player player) {
+        ChatSettingsHolder holder = new ChatSettingsHolder();
+        Inventory inventory = Bukkit.createInventory(holder, 27, Component.text("Configurações de chat"));
+        holder.inventory = inventory;
+        PlayerSettings prefs = settings(player.getUniqueId());
+        addPreferenceItem(inventory, 10, Material.PAPER, "global", prefs.globalChat);
+        addPreferenceItem(inventory, 11, Material.BOOK, "clan", prefs.clanChat);
+        addPreferenceItem(inventory, 12, Material.WRITABLE_BOOK, "tell", prefs.receiveTells);
+        addPreferenceItem(inventory, 13, Material.CLOCK, "activity", prefs.activity);
+        addPreferenceItem(inventory, 14, Material.MAP, "invites", prefs.invites);
+        addPreferenceItem(inventory, 15, Material.GOLD_INGOT, "diplomacy", prefs.diplomacy);
+        addPreferenceItem(inventory, 16, Material.IRON_SWORD, "wars", prefs.wars);
+        addPreferenceItem(inventory, 22, Material.BELL, "announcements", prefs.announcements);
+        player.openInventory(inventory);
+    }
+
+    private void addPreferenceItem(Inventory inventory, int slot, Material material, String key, boolean enabled) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        meta.displayName(Component.text(preferenceLabel(key), NamedTextColor.YELLOW));
+        meta.lore(List.of(
+                Component.text("Status: " + (enabled ? "ATIVADO" : "DESATIVADO"), enabled ? NamedTextColor.GREEN : NamedTextColor.RED),
+                Component.text("Clique para alternar.", NamedTextColor.GRAY)
+        ));
+        meta.getPersistentDataContainer().set(menuActionKey, PersistentDataType.STRING, "pref:" + key);
+        item.setItemMeta(meta);
+        inventory.setItem(slot, item);
+    }
+
+    private void updateTabName(Player player) {
+        if (!getConfig().getBoolean("tablist.show-clan-tag", true)) {
+            player.playerListName(null);
+            return;
+        }
+        Clan clan = findClan(player.getUniqueId());
+        if (clan == null) {
+            player.playerListName(null);
+            clanTagsSnapshot.remove(player.getUniqueId());
+            return;
+        }
+        clanTagsSnapshot.put(player.getUniqueId(), clan.tag);
+        Component name = Component.text(player.getName(), NamedTextColor.WHITE)
+                .append(Component.text(" ✦", NamedTextColor.GOLD))
+                .append(Component.text(" [" + clan.tag + "]", NamedTextColor.DARK_GRAY));
+        player.playerListName(name);
+    }
+
+    private void broadcastClanPreference(Clan clan, Component message, String preference) {
+        for (UUID memberId : clan.members.keySet()) {
+            Player online = Bukkit.getPlayer(memberId);
+            if (online != null && preferenceEnabled(settings(memberId), preference)) online.sendMessage(message);
+        }
+    }
+
+    private void broadcastGlobalPreference(Component message, String preference) {
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            if (preferenceEnabled(settings(online.getUniqueId()), preference)) online.sendMessage(message);
+        }
     }
 
     private void showInfo(CommandSender sender, Clan clan) {
@@ -889,6 +1268,17 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
 
     @EventHandler
     public void onMenuClick(InventoryClickEvent event) {
+        if (event.getView().getTopInventory().getHolder() instanceof ChatSettingsHolder) {
+            event.setCancelled(true);
+            if (!(event.getWhoClicked() instanceof Player player) || event.getClickedInventory() != event.getView().getTopInventory()) return;
+            ItemStack clicked = event.getCurrentItem();
+            if (clicked == null || !clicked.hasItemMeta()) return;
+            String action = clicked.getItemMeta().getPersistentDataContainer().get(menuActionKey, PersistentDataType.STRING);
+            if (action == null || !action.startsWith("pref:")) return;
+            toggleChatPreference(player, action.substring("pref:".length()));
+            openChatSettings(player);
+            return;
+        }
         if (!(event.getView().getTopInventory().getHolder() instanceof ClanMenuHolder)) return;
         event.setCancelled(true);
         if (!(event.getWhoClicked() instanceof Player player) || event.getClickedInventory() != event.getView().getTopInventory()) return;
@@ -985,6 +1375,11 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
                 "/clan expulsar <jogador> • remover membro",
                 "/clan transferir <jogador> • passar liderança",
                 "/clan desc <texto> • descrição",
+                "/clanchat • fixar mensagens no chat do clan",
+                "/g • voltar ao chat global",
+                "/msg <jogador> <mensagem> e /r <mensagem> • mensagem privada/resposta",
+                "/ignore <jogador>, /unignore <jogador>, /ignorelist • bloquear mensagens",
+                "/chat • configurações do chat e notificações",
                 "/clan chat ou /clan c <mensagem> • chat privado",
                 "/clan sethome e /clan home • base",
                 "/clan ally <TAG> • propor aliança",
@@ -1003,6 +1398,26 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (args.length == 1 && command.getName().equalsIgnoreCase("msg")) {
+            return Bukkit.getOnlinePlayers().stream().map(Player::getName)
+                    .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT))).toList();
+        }
+        if (args.length == 1 && command.getName().equalsIgnoreCase("ignore")) {
+            return Bukkit.getOnlinePlayers().stream().map(Player::getName)
+                    .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT))).toList();
+        }
+        if (args.length == 1 && command.getName().equalsIgnoreCase("unignore") && sender instanceof Player player) {
+            return settings(player.getUniqueId()).ignored.stream().map(this::nameOf)
+                    .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT))).toList();
+        }
+        if (args.length == 2 && command.getName().equalsIgnoreCase("chat") && args[0].equalsIgnoreCase("toggle")) {
+            return List.of("global", "clan", "tell", "activity", "invites", "diplomacy", "wars", "announcements")
+                    .stream().filter(key -> key.startsWith(args[1].toLowerCase(Locale.ROOT))).toList();
+        }
+        if (args.length == 1 && command.getName().equalsIgnoreCase("clanchat")) {
+            return List.of("on", "off").stream()
+                    .filter(key -> key.startsWith(args[0].toLowerCase(Locale.ROOT))).toList();
+        }
         if (args.length == 1) {
             return List.of("criar", "menu", "info", "membros", "convidar", "aceitar", "recusar",
                     "sair", "expulsar", "promover", "rebaixar", "transferir", "dissolver", "desc",
@@ -1089,5 +1504,20 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
     private static final class ClanMenuHolder implements InventoryHolder {
         private Inventory inventory;
         @Override public Inventory getInventory() { return inventory; }
+    }
+    private static final class ChatSettingsHolder implements InventoryHolder {
+        private Inventory inventory;
+        @Override public Inventory getInventory() { return inventory; }
+    }
+    private static final class PlayerSettings {
+        private volatile boolean globalChat = true;
+        private volatile boolean clanChat = true;
+        private volatile boolean receiveTells = true;
+        private volatile boolean activity = true;
+        private volatile boolean invites = true;
+        private volatile boolean diplomacy = true;
+        private volatile boolean wars = true;
+        private volatile boolean announcements = true;
+        private final Set<UUID> ignored = ConcurrentHashMap.newKeySet();
     }
 }
