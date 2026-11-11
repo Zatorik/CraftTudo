@@ -38,8 +38,10 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.inventory.CookingRecipe;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.loot.Lootable;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -60,14 +62,17 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
     private static final Set<EntityType> ALLOWED_MOBS = Set.of(
             EntityType.ALLAY,
             EntityType.ARMADILLO,
+            EntityType.AXOLOTL,
             EntityType.BAT,
             EntityType.CAMEL,
             EntityType.CAT,
             EntityType.CHICKEN,
+            EntityType.COD,
             EntityType.COW,
             EntityType.DONKEY,
             EntityType.FOX,
             EntityType.FROG,
+            EntityType.GLOW_SQUID,
             EntityType.HORSE,
             EntityType.MOOSHROOM,
             EntityType.MULE,
@@ -75,9 +80,13 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             EntityType.PARROT,
             EntityType.PIG,
             EntityType.RABBIT,
+            EntityType.SALMON,
             EntityType.SHEEP,
             EntityType.SNIFFER,
+            EntityType.SQUID,
             EntityType.STRIDER,
+            EntityType.TADPOLE,
+            EntityType.TROPICAL_FISH,
             EntityType.TURTLE,
             EntityType.VILLAGER,
             EntityType.WANDERING_TRADER
@@ -87,6 +96,9 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             Material.CHEST,
             Material.TRAPPED_CHEST,
             Material.BARREL,
+            Material.FURNACE,
+            Material.BLAST_FURNACE,
+            Material.SMOKER,
             Material.DISPENSER,
             Material.DROPPER,
             Material.HOPPER,
@@ -118,6 +130,16 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
     private NamespacedKey tilePdcKey;
     private NamespacedKey customNameKey;
     private NamespacedKey hopperCooldownKey;
+    private NamespacedKey furnaceBurnTimeKey;
+    private NamespacedKey furnaceCookTimeKey;
+    private NamespacedKey furnaceCookTimeTotalKey;
+    private NamespacedKey furnaceCookSpeedKey;
+    private NamespacedKey furnaceRecipesKey;
+
+    private NamespacedKey mobOriginWorldKey;
+    private NamespacedKey mobOriginXKey;
+    private NamespacedKey mobOriginYKey;
+    private NamespacedKey mobOriginZKey;
 
     private NamespacedKey mobMarkerKey;
     private NamespacedKey mobAiKey;
@@ -135,6 +157,16 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         tilePdcKey = new NamespacedKey(this, "tile_pdc");
         customNameKey = new NamespacedKey(this, "custom_name");
         hopperCooldownKey = new NamespacedKey(this, "hopper_cooldown");
+        furnaceBurnTimeKey = new NamespacedKey(this, "furnace_burn_time");
+        furnaceCookTimeKey = new NamespacedKey(this, "furnace_cook_time");
+        furnaceCookTimeTotalKey = new NamespacedKey(this, "furnace_cook_time_total");
+        furnaceCookSpeedKey = new NamespacedKey(this, "furnace_cook_speed");
+        furnaceRecipesKey = new NamespacedKey(this, "furnace_recipes");
+
+        mobOriginWorldKey = new NamespacedKey(this, "mob_origin_world");
+        mobOriginXKey = new NamespacedKey(this, "mob_origin_x");
+        mobOriginYKey = new NamespacedKey(this, "mob_origin_y");
+        mobOriginZKey = new NamespacedKey(this, "mob_origin_z");
 
         mobMarkerKey = new NamespacedKey(this, "mob_carried");
         mobAiKey = new NamespacedKey(this, "mob_ai");
@@ -159,10 +191,17 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             } else {
                 Mob mob = carriedMobs.remove(playerId);
                 if (mob != null && mob.isValid()) {
-                    restoreMobFlags(mob);
-                    Location safe = findSafeLocation(mob.getWorld(), mob.getLocation());
+                    Location safe;
+                    if (requiresWater(mob.getType())) {
+                        Location origin = getSavedMobOrigin(mob);
+                        safe = origin == null ? null : findSafeWaterLocation(mob, origin.getWorld(), origin);
+                    } else {
+                        safe = findSafeLocation(mob.getWorld(), mob.getLocation());
+                    }
                     if (safe != null) {
+                        if (mob.getVehicle() != null) mob.leaveVehicle();
                         mob.teleport(safe);
+                        restoreMobFlags(mob);
                     }
                 }
             }
@@ -255,6 +294,11 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 || target.isInsideVehicle()
                 || !target.getPassengers().isEmpty()
                 || isMobMarked(mob)) {
+            return;
+        }
+
+        if (requiresWater(target.getType()) && !mob.isInWater()) {
+            player.sendMessage(Component.text("Esse mob aquático só pode ser pego dentro da água.", NamedTextColor.RED));
             return;
         }
 
@@ -441,6 +485,13 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             if (container instanceof Hopper hopper) {
                 data.set(hopperCooldownKey, PersistentDataType.INTEGER, hopper.getTransferCooldown());
             }
+            if (container instanceof Furnace furnace) {
+                data.set(furnaceBurnTimeKey, PersistentDataType.INTEGER, (int) furnace.getBurnTime());
+                data.set(furnaceCookTimeKey, PersistentDataType.INTEGER, (int) furnace.getCookTime());
+                data.set(furnaceCookTimeTotalKey, PersistentDataType.INTEGER, furnace.getCookTimeTotal());
+                data.set(furnaceCookSpeedKey, PersistentDataType.DOUBLE, furnace.getCookSpeedMultiplier());
+                data.set(furnaceRecipesKey, PersistentDataType.STRING, serializeFurnaceRecipes(furnace));
+            }
 
             token.setItemMeta(meta);
             return token;
@@ -565,6 +616,12 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 hopper.setTransferCooldown(Math.max(0, hopperCooldown));
             }
 
+            if (placedContainer instanceof Furnace furnace && !restoreFurnaceState(furnace, data)) {
+                target.setType(Material.AIR, false);
+                player.sendMessage(Component.text("Os dados do forno não puderam ser restaurados. O item foi mantido.", NamedTextColor.RED));
+                return;
+            }
+
             placedContainer.getPersistentDataContainer().readFromBytes(tileData, true);
             if (!placedContainer.update(true, false)) {
                 target.setType(Material.AIR, false);
@@ -579,7 +636,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                     token.clone(),
                     player,
                     true,
-                    EquipmentSlot.HAND
+                    EquipmentSlot.OFF_HAND
             );
             Bukkit.getPluginManager().callEvent(placeEvent);
 
@@ -608,6 +665,12 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         data.set(mobGravityKey, PersistentDataType.BYTE, boolByte(mob.hasGravity()));
         data.set(mobSilentKey, PersistentDataType.BYTE, boolByte(mob.isSilent()));
         data.set(mobCollidableKey, PersistentDataType.BYTE, boolByte(mob.isCollidable()));
+
+        Location origin = mob.getLocation();
+        data.set(mobOriginWorldKey, PersistentDataType.STRING, origin.getWorld().getName());
+        data.set(mobOriginXKey, PersistentDataType.DOUBLE, origin.getX());
+        data.set(mobOriginYKey, PersistentDataType.DOUBLE, origin.getY());
+        data.set(mobOriginZKey, PersistentDataType.DOUBLE, origin.getZ());
     }
 
     private void restoreMobFlags(Mob mob) {
@@ -631,10 +694,14 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         data.remove(mobGravityKey);
         data.remove(mobSilentKey);
         data.remove(mobCollidableKey);
+        data.remove(mobOriginWorldKey);
+        data.remove(mobOriginXKey);
+        data.remove(mobOriginYKey);
+        data.remove(mobOriginZKey);
     }
 
     private void releaseMob(Player player, boolean notify) {
-        Mob mob = carriedMobs.remove(player.getUniqueId());
+        Mob mob = carriedMobs.get(player.getUniqueId());
 
         if (mob == null || !mob.isValid()) {
             mob = player.getPassengers().stream()
@@ -646,22 +713,39 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         }
 
         if (mob == null || !mob.isValid()) {
+            carriedMobs.remove(player.getUniqueId());
+            return;
+        }
+
+        Location safe = requiresWater(mob.getType())
+                ? findSafeWaterLocation(mob, player.getWorld(), player.getLocation())
+                : findSafeLocation(player.getWorld(), player.getLocation());
+
+        if (safe == null && requiresWater(mob.getType())) {
+            Location origin = getSavedMobOrigin(mob);
+            if (origin != null) {
+                safe = findSafeWaterLocation(mob, origin.getWorld(), origin);
+            }
+        }
+
+        if (safe == null) {
+            if (notify && player.isOnline()) {
+                player.sendMessage(Component.text("Preciso de um espaço seguro para soltar esse mob. Ele continua protegido enquanto isso.", NamedTextColor.YELLOW));
+            }
             return;
         }
 
         if (mob.getVehicle() == player) {
             player.removePassenger(mob);
+        } else if (mob.getVehicle() != null) {
+            mob.leaveVehicle();
         }
 
-        restoreMobFlags(mob);
-
-        Location safe = findSafeLocation(player.getWorld(), player.getLocation());
-        if (safe == null) {
-            safe = player.getWorld().getSpawnLocation();
-        }
         mob.teleport(safe);
         mob.setVelocity(new Vector(0, 0, 0));
         mob.setFallDistance(0);
+        restoreMobFlags(mob);
+        carriedMobs.remove(player.getUniqueId());
 
         if (notify && player.isOnline()) {
             player.sendMessage(Component.text("Mob solto.", NamedTextColor.GREEN));
@@ -670,36 +754,70 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
 
     private void checkCarriedMobs() {
         for (Map.Entry<UUID, Mob> entry : new HashMap<>(carriedMobs).entrySet()) {
-            Player player = Bukkit.getPlayer(entry.getKey());
+            UUID playerId = entry.getKey();
+            Player player = Bukkit.getPlayer(playerId);
             Mob mob = entry.getValue();
 
-            if (mob == null || !mob.isValid()) {
-                carriedMobs.remove(entry.getKey());
+            if (mob == null || !mob.isValid() || mob.isDead()) {
+                carriedMobs.remove(playerId);
                 continue;
             }
 
-            if (player == null || mob.getVehicle() != player) {
-                carriedMobs.remove(entry.getKey());
-                restoreMobFlags(mob);
-                Location safe = player == null
-                        ? findSafeLocation(mob.getWorld(), mob.getLocation())
-                        : findSafeLocation(player.getWorld(), player.getLocation());
-                if (safe != null) {
-                    mob.teleport(safe);
-                }
+            if (player != null && mob.getVehicle() == player) {
+                continue;
             }
+
+            Location safe;
+            if (requiresWater(mob.getType())) {
+                Location origin = getSavedMobOrigin(mob);
+                safe = origin == null ? null : findSafeWaterLocation(mob, origin.getWorld(), origin);
+                if (safe == null && player != null) {
+                    safe = findSafeWaterLocation(mob, player.getWorld(), player.getLocation());
+                }
+            } else {
+                Location around = player != null ? player.getLocation() : mob.getLocation();
+                World world = player != null ? player.getWorld() : mob.getWorld();
+                safe = findSafeLocation(world, around);
+            }
+
+            if (safe == null) {
+                continue; // Mantém o mob marcado e invulnerável até existir um local seguro.
+            }
+
+            if (mob.getVehicle() != null) {
+                mob.leaveVehicle();
+            }
+            mob.teleport(safe);
+            mob.setVelocity(new Vector(0, 0, 0));
+            mob.setFallDistance(0);
+            restoreMobFlags(mob);
+            carriedMobs.remove(playerId);
         }
     }
 
     private void recoverOrphanedMobs() {
         for (World world : Bukkit.getWorlds()) {
             for (Entity entity : world.getEntities()) {
-                if (entity instanceof Mob mob && isMobMarked(mob)) {
-                    if (mob.getVehicle() instanceof Player player) {
-                        carriedMobs.put(player.getUniqueId(), mob);
-                    } else {
-                        restoreMobFlags(mob);
-                    }
+                if (!(entity instanceof Mob mob) || !isMobMarked(mob)) {
+                    continue;
+                }
+
+                if (mob.getVehicle() instanceof Player player) {
+                    carriedMobs.put(player.getUniqueId(), mob);
+                    continue;
+                }
+
+                Location safe;
+                if (requiresWater(mob.getType())) {
+                    Location origin = getSavedMobOrigin(mob);
+                    safe = origin == null ? null : findSafeWaterLocation(mob, origin.getWorld(), origin);
+                } else {
+                    safe = findSafeLocation(mob.getWorld(), mob.getLocation());
+                }
+
+                if (safe != null) {
+                    mob.teleport(safe);
+                    restoreMobFlags(mob);
                 }
             }
         }
@@ -707,7 +825,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
 
     private boolean hasCarriedMob(Player player) {
         Mob mapped = carriedMobs.get(player.getUniqueId());
-        if (mapped != null && mapped.isValid() && mapped.getVehicle() == player) {
+        if (mapped != null && mapped.isValid() && isMobMarked(mapped)) {
             return true;
         }
 
@@ -719,6 +837,125 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
 
     private boolean isMobMarked(Mob mob) {
         return mob.getPersistentDataContainer().has(mobMarkerKey, PersistentDataType.BYTE);
+    }
+
+    private boolean requiresWater(EntityType type) {
+        return switch (type) {
+            case AXOLOTL, COD, GLOW_SQUID, SALMON, SQUID, TADPOLE, TROPICAL_FISH -> true;
+            default -> false;
+        };
+    }
+
+    private Location getSavedMobOrigin(Mob mob) {
+        PersistentDataContainer data = mob.getPersistentDataContainer();
+        String worldName = data.get(mobOriginWorldKey, PersistentDataType.STRING);
+        Double x = data.get(mobOriginXKey, PersistentDataType.DOUBLE);
+        Double y = data.get(mobOriginYKey, PersistentDataType.DOUBLE);
+        Double z = data.get(mobOriginZKey, PersistentDataType.DOUBLE);
+        if (worldName == null || x == null || y == null || z == null) {
+            return null;
+        }
+        World world = Bukkit.getWorld(worldName);
+        return world == null ? null : new Location(world, x, y, z);
+    }
+
+    private Location findSafeWaterLocation(Mob mob, World world, Location around) {
+        int baseX = around.getBlockX();
+        int baseY = around.getBlockY();
+        int baseZ = around.getBlockZ();
+        int height = Math.max(1, (int) Math.ceil(mob.getHeight()));
+
+        for (int radius = 0; radius <= 8; radius++) {
+            for (int dy = 3; dy >= -5; dy--) {
+                int y = baseY + dy;
+                if (y < world.getMinHeight() || y + height >= world.getMaxHeight()) {
+                    continue;
+                }
+
+                for (int dx = -radius; dx <= radius; dx++) {
+                    for (int dz = -radius; dz <= radius; dz++) {
+                        if (radius > 0 && Math.max(Math.abs(dx), Math.abs(dz)) != radius) {
+                            continue;
+                        }
+
+                        int x = baseX + dx;
+                        int z = baseZ + dz;
+                        boolean waterColumn = true;
+
+                        for (int offset = 0; offset < height; offset++) {
+                            if (world.getBlockAt(x, y + offset, z).getType() != Material.WATER) {
+                                waterColumn = false;
+                                break;
+                            }
+                        }
+
+                        if (waterColumn) {
+                            return new Location(world, x + 0.5, y + 0.1, z + 0.5, around.getYaw(), around.getPitch());
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private String serializeFurnaceRecipes(Furnace furnace) {
+        YamlConfiguration recipes = new YamlConfiguration();
+        for (Map.Entry<CookingRecipe<?>, Integer> entry : furnace.getRecipesUsed().entrySet()) {
+            recipes.set("used." + entry.getKey().getKey(), entry.getValue());
+        }
+        return recipes.saveToString();
+    }
+
+    private boolean restoreFurnaceState(Furnace furnace, PersistentDataContainer data) {
+        Integer burnTime = data.get(furnaceBurnTimeKey, PersistentDataType.INTEGER);
+        Integer cookTime = data.get(furnaceCookTimeKey, PersistentDataType.INTEGER);
+        Integer cookTimeTotal = data.get(furnaceCookTimeTotalKey, PersistentDataType.INTEGER);
+        Double cookSpeed = data.get(furnaceCookSpeedKey, PersistentDataType.DOUBLE);
+        String serializedRecipes = data.get(furnaceRecipesKey, PersistentDataType.STRING);
+
+        if (burnTime == null || cookTime == null || cookTimeTotal == null
+                || cookSpeed == null || serializedRecipes == null) {
+            return false;
+        }
+
+        YamlConfiguration recipeConfig = new YamlConfiguration();
+        try {
+            recipeConfig.loadFromString(serializedRecipes);
+        } catch (InvalidConfigurationException exception) {
+            getLogger().warning("Receitas salvas do forno inválidas: " + exception.getMessage());
+            return false;
+        }
+
+        Map<CookingRecipe<?>, Integer> restoredRecipes = new HashMap<>();
+        if (recipeConfig.isConfigurationSection("used")) {
+            for (String keyText : recipeConfig.getConfigurationSection("used").getKeys(false)) {
+                NamespacedKey recipeKey = NamespacedKey.fromString(keyText);
+                if (recipeKey == null) {
+                    return false;
+                }
+
+                Recipe recipe = Bukkit.getRecipe(recipeKey);
+                if (!(recipe instanceof CookingRecipe<?> cookingRecipe)) {
+                    getLogger().warning("Receita de forno ausente durante restauração: " + keyText);
+                    return false;
+                }
+
+                int count = recipeConfig.getInt("used." + keyText, -1);
+                if (count < 0) {
+                    return false;
+                }
+                restoredRecipes.put(cookingRecipe, count);
+            }
+        }
+
+        furnace.setBurnTime((short) Math.max(0, Math.min(Short.MAX_VALUE, burnTime)));
+        furnace.setCookTime((short) Math.max(0, Math.min(Short.MAX_VALUE, cookTime)));
+        furnace.setCookTimeTotal(Math.max(0, cookTimeTotal));
+        furnace.setCookSpeedMultiplier(Math.max(0.0, Math.min(200.0, cookSpeed)));
+        furnace.setRecipesUsed(restoredRecipes);
+        return true;
     }
 
     private Location findSafeLocation(World world, Location around) {
@@ -744,12 +981,9 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                         Block floor = world.getBlockAt(x, y - 1, z);
                         Block feet = world.getBlockAt(x, y, z);
                         Block head = world.getBlockAt(x, y + 1, z);
-                        Block upper = world.getBlockAt(x, y + 2, z);
-
                         if (floor.getType().isSolid()
                                 && feet.isPassable()
                                 && head.isPassable()
-                                && upper.isPassable()
                                 && feet.getType() != Material.WATER
                                 && feet.getType() != Material.LAVA) {
                             return new Location(world, x + 0.5, y, z + 0.5, around.getYaw(), around.getPitch());
