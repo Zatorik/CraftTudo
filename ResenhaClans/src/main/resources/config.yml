@@ -10,3 +10,8 @@ pvp:
   protect-allies: true
 messages:
   join-quit: true
+tablist:
+  show-clan-tag: true
+chat:
+  default-global-chat: true
+  filter-ignored-players: true
