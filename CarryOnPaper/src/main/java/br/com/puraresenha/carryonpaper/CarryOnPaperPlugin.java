@@ -1037,7 +1037,13 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
     private void recoverOrphanedMobs() {
         for (World world : Bukkit.getWorlds()) {
             for (Entity entity : world.getEntities()) {
-                if (!(entity instanceof Mob mob) || !isMobMarked(mob)) {
+                if (!(entity instanceof Mob mob)) {
+                    continue;
+                }
+                if (!isMobMarked(mob) && mobBackups.contains("mobs." + mob.getUniqueId() + ".snapshot")) {
+                    mob.getPersistentDataContainer().set(mobMarkerKey, PersistentDataType.BYTE, (byte) 1);
+                }
+                if (!isMobMarked(mob)) {
                     continue;
                 }
 
@@ -1123,20 +1129,20 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
     }
 
     private Set<UUID> getKnownReputationPlayers(Villager villager) {
-        // A reputação é consultada para jogadores já conhecidos pelo aldeão.
-        // A API Bukkit expõe os valores por UUID; Paper 26.3 mantém o conjunto de UUIDs
-        // através do mapa interno de reputações, quando disponível.
-        try {
-            Object raw = villager.getClass().getMethod("getReputations").invoke(villager);
-            if (raw instanceof Map<?, ?> reputations) {
-                Set<UUID> ids = new HashSet<>();
-                for (Object key : reputations.keySet()) if (key instanceof UUID id) ids.add(id);
-                return ids;
+        Set<UUID> ids = new HashSet<>();
+        // Bukkit 26.3 permite consultar reputação por UUID, mas não expõe uma lista
+        // pública de todos os UUIDs associados. Os perfis conhecidos pelo servidor
+        // são consultados para preservar todos os valores não zerados.
+        for (org.bukkit.OfflinePlayer player : Bukkit.getOfflinePlayers()) {
+            UUID playerId = player.getUniqueId();
+            for (Villager.ReputationType type : reputationTypes().values()) {
+                if (villager.getReputation(playerId, type) != 0) {
+                    ids.add(playerId);
+                    break;
+                }
             }
-        } catch (ReflectiveOperationException ignored) {
-            // Compatibilidade com implementações que só expõem os métodos Bukkit por tipo.
         }
-        return new HashSet<>();
+        return ids;
     }
 
     private void saveLocationMemory(YamlConfiguration snapshot, String path, Location location) {
