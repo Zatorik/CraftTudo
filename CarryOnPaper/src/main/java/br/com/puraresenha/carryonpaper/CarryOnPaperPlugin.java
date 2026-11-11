@@ -1220,9 +1220,14 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         Double x = data.get(mobOriginXKey, PersistentDataType.DOUBLE);
         Double y = data.get(mobOriginYKey, PersistentDataType.DOUBLE);
         Double z = data.get(mobOriginZKey, PersistentDataType.DOUBLE);
-        if (worldName == null || x == null || y == null || z == null) {
-            return null;
-        }
+
+        String base = "mobs." + mob.getUniqueId() + ".origin";
+        if (worldName == null) worldName = mobBackups.getString(base + ".world");
+        if (x == null && mobBackups.contains(base + ".x")) x = mobBackups.getDouble(base + ".x");
+        if (y == null && mobBackups.contains(base + ".y")) y = mobBackups.getDouble(base + ".y");
+        if (z == null && mobBackups.contains(base + ".z")) z = mobBackups.getDouble(base + ".z");
+        if (worldName == null || x == null || y == null || z == null) return null;
+
         World world = Bukkit.getWorld(worldName);
         return world == null ? null : new Location(world, x, y, z);
     }
