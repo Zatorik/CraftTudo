@@ -1,0 +1,10 @@
+name: CarryOnPaper
+version: '1.0.0'
+main: br.com.puraresenha.carryonpaper.CarryOnPaperPlugin
+api-version: '26.3'
+description: Sistema restrito para carregar apenas mobs passivos autorizados e blocos específicos.
+author: Zatorik
+permissions:
+  carryonpaper.use:
+    description: Permite carregar os mobs e blocos autorizados.
+    default: true
