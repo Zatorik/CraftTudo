@@ -27,6 +27,7 @@ import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
@@ -371,6 +372,28 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPrivateMessageCommand(PlayerCommandPreprocessEvent event) {
+        String raw = event.getMessage();
+        if (raw == null || raw.length() < 2 || raw.charAt(0) != '/') return;
+
+        String[] parts = raw.substring(1).trim().split("\\s+");
+        if (parts.length == 0) return;
+        String commandLabel = parts[0].toLowerCase(Locale.ROOT);
+        int namespace = commandLabel.indexOf(':');
+        if (namespace >= 0) commandLabel = commandLabel.substring(namespace + 1);
+
+        if (Set.of("msg", "tell", "w", "whisper").contains(commandLabel)) {
+            event.setCancelled(true);
+            String[] messageArgs = java.util.Arrays.copyOfRange(parts, 1, parts.length);
+            sendPrivateMessage(event.getPlayer(), messageArgs);
+        } else if (Set.of("r", "reply").contains(commandLabel)) {
+            event.setCancelled(true);
+            String[] messageArgs = java.util.Arrays.copyOfRange(parts, 1, parts.length);
+            replyPrivateMessage(event.getPlayer(), messageArgs);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onFriendlyFire(EntityDamageByEntityEvent event) {
         if (!(event.getEntity() instanceof Player victim)) return;
         Player attacker = getPlayerDamager(event.getDamager());
@@ -579,7 +602,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             case "announce", "anunciar" -> announce(player, clan, args);
             case "sethome" -> setHome(player, clan);
             case "home" -> goHome(player, clan);
-            case "chat" -> toggleClanChat(player, new String[0]);
+            case "chat" -> toggleClanChat(player, args);
             case "c" -> sendClanMessage(player, clan, args);
             case "friendlyfire" -> setFriendlyFire(player, clan, args);
             case "ally", "aliar" -> requestAlliance(player, clan, args);
@@ -956,9 +979,10 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             error(player, "Você não pertence a um clan.");
             return;
         }
-        if (args.length >= 2 && args[1].equalsIgnoreCase("on")) {
+        String requestedMode = args.length >= 2 ? args[1] : (args.length == 1 ? args[0] : "");
+        if (requestedMode.equalsIgnoreCase("on")) {
             clanChat.add(player.getUniqueId());
-        } else if (args.length >= 2 && args[1].equalsIgnoreCase("off")) {
+        } else if (requestedMode.equalsIgnoreCase("off")) {
             clanChat.remove(player.getUniqueId());
         } else if (!clanChat.add(player.getUniqueId())) {
             clanChat.remove(player.getUniqueId());
