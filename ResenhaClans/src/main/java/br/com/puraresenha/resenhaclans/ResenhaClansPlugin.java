@@ -7,6 +7,7 @@ import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.World;
 import org.bukkit.command.Command;
@@ -323,7 +324,8 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             return;
         }
         Relation relation = getRelation(victimClan.id, attackerClan.id);
-        if (relation != null && relation.type == RelationType.ALLY) {
+        if (relation != null && relation.type == RelationType.ALLY
+                && getConfig().getBoolean("pvp.protect-allies", true)) {
             event.setCancelled(true);
             attacker.sendMessage(Component.text("Você não pode atacar um clan aliado.", NamedTextColor.RED));
         }
@@ -857,7 +859,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         addMenuItem(inventory, 16, Material.PAPER, "Ajuda e comandos", "help");
         addMenuItem(inventory, 20, Material.COMPASS, "Ir para a base", "home");
         addMenuItem(inventory, 22, Material.OAK_SIGN, "Alternar chat do clan", "chat");
-        addMenuItem(inventory, 24, Material.BANNER, "Ver aliados", "allies");
+        addMenuItem(inventory, 24, Material.WHITE_BANNER, "Ver aliados", "allies");
         if (clan == null) inventory.setItem(10, menuItem(Material.WRITABLE_BOOK, "Você ainda não tem clan", List.of("Use /clan criar <TAG> <nome>")));
         else inventory.setItem(10, menuItem(Material.BOOK, "[" + clan.tag + "] " + clan.name,
                 List.of("Membros: " + clan.members.size(), "Pontos: " + clan.points, "Clique para informações")));
