@@ -519,10 +519,6 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (args.length == 0) {
-            sendHelp(sender);
-            return true;
-        }
         String commandName = command.getName().toLowerCase(Locale.ROOT);
         if (commandName.equals("clanchat")) {
             if (!(sender instanceof Player player)) { error(sender, "Somente jogadores podem usar o chat de clan."); return true; }
@@ -567,10 +563,16 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             return true;
         }
 
+        if (args.length == 0) {
+            sendHelp(sender);
+            return true;
+        }
+
         String sub = args[0].toLowerCase(Locale.ROOT);
         if (sub.equals("reload")) {
             if (!sender.hasPermission("resenhaclans.admin")) { error(sender, "Você não tem permissão."); return true; }
             reloadConfig();
+            for (Player online : Bukkit.getOnlinePlayers()) updateTabName(online);
             sender.sendMessage(Component.text("Configuração recarregada.", NamedTextColor.GREEN));
             return true;
         }
@@ -869,9 +871,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
     private void sendClanMessage(Player player, Clan clan, String[] args) {
         if (clan == null) { error(player, "Você não pertence a um clan."); return; }
         if (args.length < 2) { error(player, "Uso: /clan c <mensagem>"); return; }
-        Component message = Component.text("[CLAN] [" + clan.tag + "] " + player.getName() + ": ", NamedTextColor.GOLD)
-                .append(Component.text(joinArgs(args, 1), NamedTextColor.WHITE));
-        broadcastClan(clan, message);
+        deliverClanChat(player.getUniqueId(), Component.text(joinArgs(args, 1), NamedTextColor.WHITE));
     }
 
     private void setFriendlyFire(Player player, Clan clan, String[] args) {
