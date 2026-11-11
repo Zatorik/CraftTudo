@@ -20,6 +20,8 @@ import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.AbstractHorse;
 import org.bukkit.entity.AbstractVillager;
+import org.bukkit.entity.Steerable;
+import org.bukkit.entity.memory.MemoryKey;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.EntityType;
@@ -57,6 +59,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -156,6 +159,9 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
     private NamespacedKey mobCollidableKey;
     private NamespacedKey mobSnapshotKey;
 
+    private File mobBackupsFile;
+    private YamlConfiguration mobBackups;
+
     @Override
     public void onEnable() {
         blockTokenKey = new NamespacedKey(this, "block_token");
@@ -184,15 +190,22 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         mobCollidableKey = new NamespacedKey(this, "mob_collidable");
         mobSnapshotKey = new NamespacedKey(this, "mob_snapshot");
 
+        mobBackupsFile = new File(getDataFolder(), "mob-backups.yml");
+        if (!getDataFolder().exists() && !getDataFolder().mkdirs()) {
+            throw new IllegalStateException("Não foi possível criar a pasta de dados do CarryOnPaper.");
+        }
+        mobBackups = YamlConfiguration.loadConfiguration(mobBackupsFile);
+
         Bukkit.getPluginManager().registerEvents(this, this);
         Bukkit.getScheduler().runTask(this, this::recoverOrphanedMobs);
         Bukkit.getScheduler().runTaskTimer(this, this::checkCarriedMobs, 20L, 20L);
 
-        getLogger().info("CarryOnPaper 1.2.0 carregado. Snapshot de equipamentos, montarias e dados comerciais ativo.");
+        getLogger().info("CarryOnPaper 1.3.0 carregado. Proteção adicional de dados de mobs e aldeões ativa.");
     }
 
     @Override
     public void onDisable() {
+        saveMobBackups();
         for (UUID playerId : new HashSet<>(carriedMobs.keySet())) {
             Player player = Bukkit.getPlayer(playerId);
             if (player != null) {
@@ -693,6 +706,11 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             if (mob instanceof AbstractHorse horse) {
                 saveInventorySnapshot(snapshot, "horse.inventory", horse.getInventory().getContents());
             }
+            if (mob instanceof Steerable steerable) {
+                snapshot.set("steerable.saddle", steerable.hasSaddle());
+                snapshot.set("steerable.boostTicks", steerable.getBoostTicks());
+                snapshot.set("steerable.currentBoostTicks", steerable.getCurrentBoostTicks());
+            }
             if (mob instanceof AbstractVillager merchant) {
                 snapshot.set("merchant.recipes", merchant.getRecipes());
                 saveInventorySnapshot(snapshot, "merchant.inventory", merchant.getInventory().getContents());
@@ -703,10 +721,28 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 snapshot.set("villager.level", villager.getVillagerLevel());
                 snapshot.set("villager.experience", villager.getVillagerExperience());
                 snapshot.set("villager.restocksToday", villager.getRestocksToday());
+                snapshot.set("villager.gossipDecayTime", villager.getGossipDecayTime());
+
+                for (Map.Entry<String, Villager.ReputationType> reputationType : reputationTypes().entrySet()) {
+                    for (UUID playerId : getKnownReputationPlayers(villager)) {
+                        int value = villager.getReputation(playerId, reputationType.getValue());
+                        snapshot.set("villager.reputations." + playerId + "." + reputationType.getKey(), value);
+                    }
+                }
+
+                saveLocationMemory(snapshot, "villager.memory.job_site", villager.getMemory(MemoryKey.JOB_SITE));
+                saveLocationMemory(snapshot, "villager.memory.potential_job_site", villager.getMemory(MemoryKey.POTENTIAL_JOB_SITE));
+                saveLocationMemory(snapshot, "villager.memory.meeting_point", villager.getMemory(MemoryKey.MEETING_POINT));
+                saveLocationMemory(snapshot, "villager.memory.home", villager.getMemory(MemoryKey.HOME));
+                Long lastWorked = villager.getMemory(MemoryKey.LAST_WORKED_AT_POI);
+                if (lastWorked != null) snapshot.set("villager.memory.last_worked_at_poi", lastWorked);
             }
-            mob.getPersistentDataContainer().set(mobSnapshotKey, PersistentDataType.STRING, snapshot.saveToString());
+            String serialized = snapshot.saveToString();
+            mob.getPersistentDataContainer().set(mobSnapshotKey, PersistentDataType.STRING, serialized);
+            mobBackups.set("mobs." + mob.getUniqueId() + ".snapshot", serialized);
+            saveMobBackups();
             return true;
-        } catch (RuntimeException exception) {
+        } catch (Exception exception) {
             getLogger().warning("Falha ao salvar dados do mob " + mob.getUniqueId() + ": " + exception.getMessage());
             return false;
         }
@@ -727,7 +763,10 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
     private boolean restoreMobData(Mob mob) {
         PersistentDataContainer data = mob.getPersistentDataContainer();
         String serialized = data.get(mobSnapshotKey, PersistentDataType.STRING);
-        if (serialized == null) return true;
+        if (serialized == null) {
+            serialized = mobBackups.getString("mobs." + mob.getUniqueId() + ".snapshot");
+            if (serialized == null) return true;
+        }
 
         try {
             YamlConfiguration snapshot = new YamlConfiguration();
@@ -748,6 +787,14 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             if (mob instanceof AbstractHorse horse && snapshot.contains("horse.inventory.size")) {
                 restoreInventorySnapshot(snapshot, "horse.inventory", horse.getInventory());
             }
+            if (mob instanceof Steerable steerable && snapshot.contains("steerable.saddle")) {
+                steerable.setSaddle(snapshot.getBoolean("steerable.saddle"));
+                int boostTicks = Math.max(0, snapshot.getInt("steerable.boostTicks", 0));
+                int currentBoostTicks = Math.max(0, Math.min(boostTicks,
+                        snapshot.getInt("steerable.currentBoostTicks", 0)));
+                steerable.setBoostTicks(boostTicks);
+                steerable.setCurrentBoostTicks(currentBoostTicks);
+            }
 
             if (mob instanceof Villager villager && snapshot.isConfigurationSection("villager")) {
                 String profession = snapshot.getString("villager.profession");
@@ -757,6 +804,35 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 villager.setVillagerLevel(Math.max(1, Math.min(5, snapshot.getInt("villager.level", 1))));
                 villager.setVillagerExperience(Math.max(0, snapshot.getInt("villager.experience", 0)));
                 villager.setRestocksToday(Math.max(0, snapshot.getInt("villager.restocksToday", 0)));
+                if (snapshot.contains("villager.gossipDecayTime")) {
+                    villager.setGossipDecayTime(Math.max(0L, snapshot.getLong("villager.gossipDecayTime")));
+                }
+
+                villager.clearReputations();
+                if (snapshot.isConfigurationSection("villager.reputations")) {
+                    for (String playerIdText : snapshot.getConfigurationSection("villager.reputations").getKeys(false)) {
+                        UUID playerId;
+                        try {
+                            playerId = UUID.fromString(playerIdText);
+                        } catch (IllegalArgumentException ignored) {
+                            continue;
+                        }
+                        for (Map.Entry<String, Villager.ReputationType> reputationType : reputationTypes().entrySet()) {
+                            String path = "villager.reputations." + playerIdText + "." + reputationType.getKey();
+                            if (snapshot.contains(path)) {
+                                villager.setReputation(playerId, reputationType.getValue(), snapshot.getInt(path));
+                            }
+                        }
+                    }
+                }
+
+                restoreLocationMemory(villager, MemoryKey.JOB_SITE, snapshot, "villager.memory.job_site");
+                restoreLocationMemory(villager, MemoryKey.POTENTIAL_JOB_SITE, snapshot, "villager.memory.potential_job_site");
+                restoreLocationMemory(villager, MemoryKey.MEETING_POINT, snapshot, "villager.memory.meeting_point");
+                restoreLocationMemory(villager, MemoryKey.HOME, snapshot, "villager.memory.home");
+                if (snapshot.contains("villager.memory.last_worked_at_poi")) {
+                    villager.setMemory(MemoryKey.LAST_WORKED_AT_POI, snapshot.getLong("villager.memory.last_worked_at_poi"));
+                }
             }
 
             if (mob instanceof AbstractVillager merchant && snapshot.isConfigurationSection("merchant")) {
@@ -814,6 +890,18 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         data.set(mobOriginXKey, PersistentDataType.DOUBLE, origin.getX());
         data.set(mobOriginYKey, PersistentDataType.DOUBLE, origin.getY());
         data.set(mobOriginZKey, PersistentDataType.DOUBLE, origin.getZ());
+
+        String base = "mobs." + mob.getUniqueId();
+        mobBackups.set(base + ".flags.ai", mob.hasAI());
+        mobBackups.set(base + ".flags.invulnerable", mob.isInvulnerable());
+        mobBackups.set(base + ".flags.gravity", mob.hasGravity());
+        mobBackups.set(base + ".flags.silent", mob.isSilent());
+        mobBackups.set(base + ".flags.collidable", mob.isCollidable());
+        mobBackups.set(base + ".origin.world", origin.getWorld().getName());
+        mobBackups.set(base + ".origin.x", origin.getX());
+        mobBackups.set(base + ".origin.y", origin.getY());
+        mobBackups.set(base + ".origin.z", origin.getZ());
+        saveMobBackups();
     }
 
     private void restoreMobFlags(Mob mob) {
@@ -825,11 +913,17 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         Byte silent = data.get(mobSilentKey, PersistentDataType.BYTE);
         Byte collidable = data.get(mobCollidableKey, PersistentDataType.BYTE);
 
+        String base = "mobs." + mob.getUniqueId();
         if (ai != null) mob.setAI(ai == 1);
+        else if (mobBackups.contains(base + ".flags.ai")) mob.setAI(mobBackups.getBoolean(base + ".flags.ai"));
         if (invulnerable != null) mob.setInvulnerable(invulnerable == 1);
+        else if (mobBackups.contains(base + ".flags.invulnerable")) mob.setInvulnerable(mobBackups.getBoolean(base + ".flags.invulnerable"));
         if (gravity != null) mob.setGravity(gravity == 1);
+        else if (mobBackups.contains(base + ".flags.gravity")) mob.setGravity(mobBackups.getBoolean(base + ".flags.gravity"));
         if (silent != null) mob.setSilent(silent == 1);
+        else if (mobBackups.contains(base + ".flags.silent")) mob.setSilent(mobBackups.getBoolean(base + ".flags.silent"));
         if (collidable != null) mob.setCollidable(collidable == 1);
+        else if (mobBackups.contains(base + ".flags.collidable")) mob.setCollidable(mobBackups.getBoolean(base + ".flags.collidable"));
 
         data.remove(mobMarkerKey);
         data.remove(mobAiKey);
@@ -841,6 +935,8 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         data.remove(mobOriginXKey);
         data.remove(mobOriginYKey);
         data.remove(mobOriginZKey);
+        mobBackups.set("mobs." + mob.getUniqueId(), null);
+        saveMobBackups();
     }
 
     private void releaseMob(Player player, boolean notify) {
@@ -977,7 +1073,13 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             }
 
             Bukkit.getScheduler().runTask(this, () -> {
-                if (!mob.isValid() || mob.isDead() || !isMobMarked(mob)) {
+                if (!mob.isValid() || mob.isDead()) {
+                    return;
+                }
+                if (!isMobMarked(mob) && mobBackups.contains("mobs." + mob.getUniqueId() + ".snapshot")) {
+                    mob.getPersistentDataContainer().set(mobMarkerKey, PersistentDataType.BYTE, (byte) 1);
+                }
+                if (!isMobMarked(mob)) {
                     return;
                 }
 
@@ -1007,6 +1109,75 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 mob.setFallDistance(0);
                 if (restoreMobData(mob)) restoreMobFlags(mob);
             });
+        }
+    }
+
+    private Map<String, Villager.ReputationType> reputationTypes() {
+        Map<String, Villager.ReputationType> types = new java.util.LinkedHashMap<>();
+        types.put("major_negative", Villager.ReputationType.MAJOR_NEGATIVE);
+        types.put("minor_negative", Villager.ReputationType.MINOR_NEGATIVE);
+        types.put("minor_positive", Villager.ReputationType.MINOR_POSITIVE);
+        types.put("major_positive", Villager.ReputationType.MAJOR_POSITIVE);
+        types.put("trading", Villager.ReputationType.TRADING);
+        return types;
+    }
+
+    private Set<UUID> getKnownReputationPlayers(Villager villager) {
+        // A reputação é consultada para jogadores já conhecidos pelo aldeão.
+        // A API Bukkit expõe os valores por UUID; Paper 26.3 mantém o conjunto de UUIDs
+        // através do mapa interno de reputações, quando disponível.
+        try {
+            Object raw = villager.getClass().getMethod("getReputations").invoke(villager);
+            if (raw instanceof Map<?, ?> reputations) {
+                Set<UUID> ids = new HashSet<>();
+                for (Object key : reputations.keySet()) if (key instanceof UUID id) ids.add(id);
+                return ids;
+            }
+        } catch (ReflectiveOperationException ignored) {
+            // Compatibilidade com implementações que só expõem os métodos Bukkit por tipo.
+        }
+        return new HashSet<>();
+    }
+
+    private void saveLocationMemory(YamlConfiguration snapshot, String path, Location location) {
+        if (location == null || location.getWorld() == null) {
+            snapshot.set(path, null);
+            return;
+        }
+        snapshot.set(path + ".world", location.getWorld().getName());
+        snapshot.set(path + ".x", location.getX());
+        snapshot.set(path + ".y", location.getY());
+        snapshot.set(path + ".z", location.getZ());
+        snapshot.set(path + ".yaw", location.getYaw());
+        snapshot.set(path + ".pitch", location.getPitch());
+    }
+
+    private void restoreLocationMemory(Villager villager, MemoryKey<Location> key,
+                                       YamlConfiguration snapshot, String path) {
+        if (!snapshot.contains(path + ".world")) {
+            villager.setMemory(key, null);
+            return;
+        }
+        World world = Bukkit.getWorld(snapshot.getString(path + ".world", ""));
+        if (world == null) {
+            getLogger().warning("Mundo ausente ao restaurar memória de aldeão: " + path);
+            return;
+        }
+        Location location = new Location(world,
+                snapshot.getDouble(path + ".x"),
+                snapshot.getDouble(path + ".y"),
+                snapshot.getDouble(path + ".z"),
+                (float) snapshot.getDouble(path + ".yaw"),
+                (float) snapshot.getDouble(path + ".pitch"));
+        villager.setMemory(key, location);
+    }
+
+    private void saveMobBackups() {
+        if (mobBackups == null || mobBackupsFile == null) return;
+        try {
+            mobBackups.save(mobBackupsFile);
+        } catch (IOException exception) {
+            getLogger().severe("Não foi possível salvar mob-backups.yml: " + exception.getMessage());
         }
     }
 
