@@ -58,7 +58,6 @@ import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -211,7 +210,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                     if (safe != null) {
                         if (mob.getVehicle() != null) mob.leaveVehicle();
                         mob.teleport(safe);
-                        restoreMobFlags(mob);
+                        if (restoreMobData(mob)) restoreMobFlags(mob);
                     }
                 }
             }
@@ -314,7 +313,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
 
         saveMobFlags(mob);
         if (!saveMobData(mob)) {
-            restoreMobFlags(mob);
+            if (restoreMobData(mob)) restoreMobFlags(mob);
             player.sendMessage(Component.text("Não consegui salvar os equipamentos e dados desse mob. Ele não foi carregado.", NamedTextColor.RED));
             return;
         }
@@ -333,7 +332,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         }
 
         if (!mounted) {
-            restoreMobFlags(mob);
+            if (restoreMobData(mob)) restoreMobFlags(mob);
             player.sendMessage(Component.text("Não foi possível carregar esse mob aqui.", NamedTextColor.RED));
             return;
         }
@@ -888,7 +887,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         mob.teleport(safe);
         mob.setVelocity(new Vector(0, 0, 0));
         mob.setFallDistance(0);
-        restoreMobFlags(mob);
+        if (restoreMobData(mob)) restoreMobFlags(mob);
         carriedMobs.remove(player.getUniqueId());
 
         if (notify && player.isOnline()) {
@@ -934,7 +933,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             mob.teleport(safe);
             mob.setVelocity(new Vector(0, 0, 0));
             mob.setFallDistance(0);
-            restoreMobFlags(mob);
+            if (restoreMobData(mob)) restoreMobFlags(mob);
             carriedMobs.remove(playerId);
         }
     }
@@ -961,7 +960,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
 
                 if (safe != null) {
                     mob.teleport(safe);
-                    restoreMobFlags(mob);
+                    if (restoreMobData(mob)) restoreMobFlags(mob);
                 }
             }
         }
@@ -1006,7 +1005,7 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
                 mob.teleport(safe);
                 mob.setVelocity(new Vector(0, 0, 0));
                 mob.setFallDistance(0);
-                restoreMobFlags(mob);
+                if (restoreMobData(mob)) restoreMobFlags(mob);
             });
         }
     }
