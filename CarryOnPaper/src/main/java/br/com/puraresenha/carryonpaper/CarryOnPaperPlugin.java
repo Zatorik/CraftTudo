@@ -692,6 +692,30 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
     private boolean saveMobData(Mob mob) {
         try {
             YamlConfiguration snapshot = new YamlConfiguration();
+
+            // Estado geral dos animais: idade, reprodução, domesticação e postura.
+            if (mob instanceof org.bukkit.entity.Ageable ageable) {
+                snapshot.set("animal.age", ageable.getAge());
+                snapshot.set("animal.ageLock", ageable.getAgeLock());
+            }
+            if (mob instanceof org.bukkit.entity.Animals animals) {
+                snapshot.set("animal.loveModeTicks", animals.getLoveModeTicks());
+                UUID breedCause = animals.getBreedCause();
+                if (breedCause != null) snapshot.set("animal.breedCause", breedCause.toString());
+            }
+            if (mob instanceof org.bukkit.entity.Tameable tameable) {
+                snapshot.set("animal.tamed", tameable.isTamed());
+                UUID ownerId = tameable.getOwnerUniqueId();
+                if (ownerId != null) snapshot.set("animal.owner", ownerId.toString());
+            }
+            if (mob instanceof org.bukkit.entity.Sittable sittable) {
+                snapshot.set("animal.sitting", sittable.isSitting());
+            }
+            if (mob instanceof org.bukkit.entity.Sheep sheep) {
+                snapshot.set("animal.sheepColor", sheep.getColor().name());
+                snapshot.set("animal.sheared", sheep.isSheared());
+            }
+
             if (mob instanceof LivingEntity living) {
                 EntityEquipment equipment = living.getEquipment();
                 if (equipment != null) {
@@ -773,6 +797,45 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         try {
             YamlConfiguration snapshot = new YamlConfiguration();
             snapshot.loadFromString(serialized);
+
+            if (mob instanceof org.bukkit.entity.Ageable ageable && snapshot.contains("animal.age")) {
+                ageable.setAge(snapshot.getInt("animal.age"));
+                ageable.setAgeLock(snapshot.getBoolean("animal.ageLock"));
+            }
+            if (mob instanceof org.bukkit.entity.Animals animals && snapshot.contains("animal.loveModeTicks")) {
+                int loveTicks = Math.max(0, snapshot.getInt("animal.loveModeTicks"));
+                if (loveTicks > 0) animals.setLoveModeTicks(loveTicks);
+                String breedCause = snapshot.getString("animal.breedCause");
+                if (breedCause != null) {
+                    try { animals.setBreedCause(UUID.fromString(breedCause)); }
+                    catch (IllegalArgumentException ignored) { animals.setBreedCause(null); }
+                } else {
+                    animals.setBreedCause(null);
+                }
+            }
+            if (mob instanceof org.bukkit.entity.Tameable tameable && snapshot.contains("animal.tamed")) {
+                String owner = snapshot.getString("animal.owner");
+                if (owner != null) {
+                    try {
+                        tameable.setOwner(Bukkit.getOfflinePlayer(UUID.fromString(owner)));
+                    } catch (IllegalArgumentException ignored) {
+                        tameable.setTamed(snapshot.getBoolean("animal.tamed"));
+                    }
+                } else {
+                    tameable.setTamed(snapshot.getBoolean("animal.tamed"));
+                }
+            }
+            if (mob instanceof org.bukkit.entity.Sittable sittable && snapshot.contains("animal.sitting")) {
+                sittable.setSitting(snapshot.getBoolean("animal.sitting"));
+            }
+            if (mob instanceof org.bukkit.entity.Sheep sheep && snapshot.contains("animal.sheepColor")) {
+                try {
+                    sheep.setColor(org.bukkit.DyeColor.valueOf(snapshot.getString("animal.sheepColor", "WHITE")));
+                    sheep.setSheared(snapshot.getBoolean("animal.sheared"));
+                } catch (IllegalArgumentException ignored) {
+                    getLogger().warning("Cor de ovelha inválida na cópia de segurança de " + mob.getUniqueId());
+                }
+            }
 
             if (mob instanceof LivingEntity living) {
                 EntityEquipment equipment = living.getEquipment();
