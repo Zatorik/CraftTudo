@@ -1,5 +1,5 @@
 name: CarryOnPaper
-version: '1.4.1'
+version: '1.4.2'
 main: br.com.puraresenha.carryonpaper.CarryOnPaperPlugin
 api-version: '26.3'
 description: Sistema restrito para carregar mobs passivos e blocos específicos preservando seus dados.
