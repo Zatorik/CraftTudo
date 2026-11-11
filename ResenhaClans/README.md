@@ -1,4 +1,4 @@
-# ResenhaClans 1.0.0
+# ResenhaClans 1.0.1
 
 Plugin de clans para Paper 26.3 / Java 25. Desenvolvido para o Pura-Resenha.
 
