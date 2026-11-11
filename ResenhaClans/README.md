@@ -1,4 +1,4 @@
-# ResenhaClans 1.1.0
+# ResenhaClans 1.1.1
 
 Plugin de clans e qualidade de vida social para Paper 26.3 / Java 25.
 
@@ -29,7 +29,7 @@ Plugin de clans e qualidade de vida social para Paper 26.3 / Java 25.
 - /unignore <jogador> remove o bloqueio.
 - /ignorelist lista os bloqueios.
 - /chat abre um menu de preferências.
-- /chat toggle <opção> alterna uma preferência pelo comando.
+- /chat toggle <opção> alterna uma preferência; /chat toggle <opção> on|off define explicitamente o estado.
 
 ## Preferências individuais (salvas em clans.yml)
 - Chat global.
