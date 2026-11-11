@@ -740,7 +740,9 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
             String serialized = snapshot.saveToString();
             mob.getPersistentDataContainer().set(mobSnapshotKey, PersistentDataType.STRING, serialized);
             mobBackups.set("mobs." + mob.getUniqueId() + ".snapshot", serialized);
-            saveMobBackups();
+            if (!saveMobBackups()) {
+                throw new IllegalStateException("A cópia de segurança em disco não pôde ser gravada.");
+            }
             return true;
         } catch (Exception exception) {
             getLogger().warning("Falha ao salvar dados do mob " + mob.getUniqueId() + ": " + exception.getMessage());
@@ -1178,12 +1180,14 @@ public final class CarryOnPaperPlugin extends JavaPlugin implements Listener {
         villager.setMemory(key, location);
     }
 
-    private void saveMobBackups() {
-        if (mobBackups == null || mobBackupsFile == null) return;
+    private boolean saveMobBackups() {
+        if (mobBackups == null || mobBackupsFile == null) return false;
         try {
             mobBackups.save(mobBackupsFile);
+            return true;
         } catch (IOException exception) {
             getLogger().severe("Não foi possível salvar mob-backups.yml: " + exception.getMessage());
+            return false;
         }
     }
 
