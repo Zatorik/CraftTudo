@@ -1,5 +1,5 @@
 name: ResenhaClans
-version: '1.0.0'
+version: '1.0.1'
 main: br.com.puraresenha.resenhaclans.ResenhaClansPlugin
 api-version: '26.3'
 description: Sistema de clans com cargos, convites, alianças, guerras, chat e estatísticas.
