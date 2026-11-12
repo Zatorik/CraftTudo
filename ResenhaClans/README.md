@@ -1,4 +1,4 @@
-# ResenhaClans 1.2.0
+# ResenhaClans 1.2.1
 
 Plugin de clans e qualidade de vida social para Paper 26.3 / Java 25.
 
@@ -18,11 +18,11 @@ Plugin de clans e qualidade de vida social para Paper 26.3 / Java 25.
 - Ranking, lista, informações e menu clicável.
 - Tag pequena ✦ [TAG] ao lado do nome na lista de jogadores, configurável.
 
-## Cores de tag (1.2.0)
-- `/clan cor` abre uma paleta visual com 16 cores.
+## Cores de tag (1.2.1)
+- `/clan cor` abre uma paleta visual com 38 cores em tons variados.
 - Apenas o líder pode alterar a cor do clan.
 - A cor é salva em `clans.yml` por clan; clans existentes recebem cobre automaticamente.
-- A cor aparece na tag do TAB e no prefixo do chat do clan.
+- A cor aparece somente na tag do TAB e na tag do chat global/clan; nome do jogador e mensagem mantêm a formatação original.
 
 ## Chat e social QoL
 - /clanchat alterna para chat exclusivo do clan.
