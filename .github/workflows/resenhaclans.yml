@@ -34,7 +34,7 @@ jobs:
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
-          name: ResenhaClans-Paper-26.3-v1.2.0
-          path: ResenhaClans/build/libs/ResenhaClans-1.2.0.jar
+          name: ResenhaClans-Paper-26.3-v1.2.1
+          path: ResenhaClans/build/libs/ResenhaClans-1.2.1.jar
           if-no-files-found: error
           retention-days: 14
