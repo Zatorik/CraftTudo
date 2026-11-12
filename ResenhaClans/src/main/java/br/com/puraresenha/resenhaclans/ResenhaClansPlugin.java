@@ -65,7 +65,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
     private final Map<UUID, PendingTeleport> pendingTeleports = new HashMap<>();
     private final Map<UUID, PlayerSettings> playerSettings = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> lastTellTarget = new ConcurrentHashMap<>();
-    private final Map<UUID, String> clanTagsSnapshot = new ConcurrentHashMap<>();
+    private final Map<UUID, ClanChatTag> clanTagsSnapshot = new ConcurrentHashMap<>();
 
     private File dataFile;
     private NamespacedKey menuActionKey;
@@ -261,7 +261,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         Set<UUID> assigned = new HashSet<>();
         for (Clan clan : clans.values()) {
             clan.members.keySet().removeIf(memberId -> !assigned.add(memberId));
-            for (UUID memberId : clan.members.keySet()) clanTagsSnapshot.put(memberId, clan.tag);
+            for (UUID memberId : clan.members.keySet()) clanTagsSnapshot.put(memberId, new ClanChatTag(clan.tag, TagColor.fromName(clan.tagColor).hex));
         }
         long now = System.currentTimeMillis();
         invites.values().forEach(map -> map.values().removeIf(invite -> invite.expiresAt <= now));
@@ -486,11 +486,13 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             return !prefs.globalChat || prefs.ignored.contains(senderId);
         });
 
-        String tag = clanTagsSnapshot.get(senderId);
+        ClanChatTag tag = clanTagsSnapshot.get(senderId);
         event.renderer((source, sourceDisplayName, message, viewer) -> {
-            Component display = tag == null ? sourceDisplayName :
-                    Component.text("[" + tag + "] ", NamedTextColor.GOLD).append(sourceDisplayName);
-            return display.append(Component.text(" » ", NamedTextColor.DARK_GRAY)).append(message);
+            Component display = tag == null ? Component.empty() :
+                    Component.text("[" + tag.tag() + "] ", TextColor.fromHexString(tag.colorHex()));
+            return display.append(sourceDisplayName)
+                    .append(Component.text(" » ", NamedTextColor.DARK_GRAY))
+                    .append(message);
         });
     }
 
@@ -642,7 +644,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         clan.members.put(player.getUniqueId(), new Member(Rank.LEADER, player.getName(), 0, 0, now));
         clans.put(clan.id, clan);
         getPlayerStats(player.getUniqueId(), player.getName());
-        clanTagsSnapshot.put(player.getUniqueId(), clan.tag);
+        clanTagsSnapshot.put(player.getUniqueId(), new ClanChatTag(clan.tag, TagColor.fromName(clan.tagColor).hex));
         updateTabName(player);
         saveData();
         player.sendMessage(Component.text("Clan [" + tag + "] " + name + " criado com sucesso!", NamedTextColor.GREEN));
@@ -684,7 +686,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         available.remove(clanId);
         if (available.isEmpty()) invites.remove(player.getUniqueId());
         getPlayerStats(player.getUniqueId(), player.getName());
-        clanTagsSnapshot.put(player.getUniqueId(), clan.tag);
+        clanTagsSnapshot.put(player.getUniqueId(), new ClanChatTag(clan.tag, TagColor.fromName(clan.tagColor).hex));
         updateTabName(player);
         saveData();
         player.sendMessage(Component.text("Você entrou no clan [" + clan.tag + "]!", NamedTextColor.GREEN));
@@ -1181,9 +1183,15 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         if (clan == null) { error(player, "Você não pertence a um clan."); return; }
         if (!clan.leader.equals(player.getUniqueId())) { error(player, "Somente o líder pode alterar a cor da tag."); return; }
         ColorMenuHolder holder = new ColorMenuHolder();
-        Inventory inventory = Bukkit.createInventory(holder, 27, Component.text("Cor da tag do clan"));
+        Inventory inventory = Bukkit.createInventory(holder, 54, Component.text("Cor da tag do clan"));
         holder.inventory = inventory;
         TagColor[] colors = TagColor.values();
+        int[] paletteSlots = {
+                10, 11, 12, 13, 14, 15, 16, 17,
+                19, 20, 21, 22, 23, 24, 25, 26,
+                28, 29, 30, 31, 32, 33, 34, 35,
+                37, 38, 39, 40, 41, 42, 43, 44
+        };
         for (int i = 0; i < colors.length; i++) {
             TagColor color = colors[i];
             ItemStack item = new ItemStack(color.icon);
@@ -1195,7 +1203,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             ));
             meta.getPersistentDataContainer().set(menuActionKey, PersistentDataType.STRING, "tagcolor:" + color.name());
             item.setItemMeta(meta);
-            inventory.setItem(10 + i, item);
+            inventory.setItem(paletteSlots[i], item);
         }
         player.openInventory(inventory);
     }
@@ -1225,7 +1233,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
             clanTagsSnapshot.remove(player.getUniqueId());
             return;
         }
-        clanTagsSnapshot.put(player.getUniqueId(), clan.tag);
+        clanTagsSnapshot.put(player.getUniqueId(), new ClanChatTag(clan.tag, TagColor.fromName(clan.tagColor).hex));
         Component name = Component.text(player.getName(), NamedTextColor.WHITE)
                 .append(Component.text(" ✦", NamedTextColor.GOLD))
                 .append(Component.text(" [" + clan.tag + "]", TextColor.fromHexString(TagColor.fromName(clan.tagColor).hex)));
@@ -1543,20 +1551,42 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
 
     private enum TagColor {
         COPPER("Cobre", "#C47A3A", Material.ORANGE_STAINED_GLASS_PANE),
+        SCARLET("Escarlate", "#E53935", Material.RED_STAINED_GLASS_PANE),
         RED("Vermelho", "#F04444", Material.RED_STAINED_GLASS_PANE),
+        CRIMSON("Carmesim", "#B71C1C", Material.RED_STAINED_GLASS_PANE),
+        CORAL("Coral", "#FF7F50", Material.ORANGE_STAINED_GLASS_PANE),
         ORANGE("Laranja", "#FF8C32", Material.ORANGE_STAINED_GLASS_PANE),
+        AMBER("Âmbar", "#FFB300", Material.ORANGE_STAINED_GLASS_PANE),
+        GOLD("Dourado", "#F9A825", Material.YELLOW_STAINED_GLASS_PANE),
         YELLOW("Amarelo", "#FFD43B", Material.YELLOW_STAINED_GLASS_PANE),
+        LEMON("Limão", "#D4E157", Material.LIME_STAINED_GLASS_PANE),
         LIME("Verde-limão", "#A3E635", Material.LIME_STAINED_GLASS_PANE),
+        MINT("Menta", "#98FFCC", Material.LIME_STAINED_GLASS_PANE),
+        EMERALD("Esmeralda", "#00A86B", Material.GREEN_STAINED_GLASS_PANE),
         GREEN("Verde", "#35C759", Material.GREEN_STAINED_GLASS_PANE),
+        DARK_GREEN("Verde-escuro", "#176B3A", Material.GREEN_STAINED_GLASS_PANE),
+        OLIVE("Oliva", "#808000", Material.GREEN_STAINED_GLASS_PANE),
+        TEAL("Verde-petróleo", "#008C8C", Material.CYAN_STAINED_GLASS_PANE),
+        TURQUOISE("Turquesa", "#40E0D0", Material.CYAN_STAINED_GLASS_PANE),
         CYAN("Ciano", "#22D3EE", Material.CYAN_STAINED_GLASS_PANE),
+        SKY("Azul-céu", "#38BDF8", Material.LIGHT_BLUE_STAINED_GLASS_PANE),
         LIGHT_BLUE("Azul-claro", "#60A5FA", Material.LIGHT_BLUE_STAINED_GLASS_PANE),
         BLUE("Azul", "#3498DB", Material.BLUE_STAINED_GLASS_PANE),
+        ROYAL_BLUE("Azul-real", "#4169E1", Material.BLUE_STAINED_GLASS_PANE),
+        NAVY("Azul-marinho", "#172554", Material.BLUE_STAINED_GLASS_PANE),
+        INDIGO("Índigo", "#4B0082", Material.PURPLE_STAINED_GLASS_PANE),
         PURPLE("Roxo", "#A855F7", Material.PURPLE_STAINED_GLASS_PANE),
+        VIOLET("Violeta", "#8F00FF", Material.PURPLE_STAINED_GLASS_PANE),
+        LAVENDER("Lavanda", "#B57EDC", Material.PURPLE_STAINED_GLASS_PANE),
         MAGENTA("Magenta", "#D946EF", Material.MAGENTA_STAINED_GLASS_PANE),
+        HOT_PINK("Rosa-choque", "#FF1493", Material.PINK_STAINED_GLASS_PANE),
         PINK("Rosa", "#F472B6", Material.PINK_STAINED_GLASS_PANE),
+        ROSE("Rosé", "#F4C2C2", Material.PINK_STAINED_GLASS_PANE),
         WHITE("Branco", "#FFFFFF", Material.WHITE_STAINED_GLASS_PANE),
+        SILVER("Prata", "#C0C0C0", Material.LIGHT_GRAY_STAINED_GLASS_PANE),
         LIGHT_GRAY("Cinza-claro", "#D1D5DB", Material.LIGHT_GRAY_STAINED_GLASS_PANE),
         GRAY("Cinza", "#6B7280", Material.GRAY_STAINED_GLASS_PANE),
+        DARK_GRAY("Cinza-escuro", "#374151", Material.GRAY_STAINED_GLASS_PANE),
         BLACK("Preto", "#303030", Material.BLACK_STAINED_GLASS_PANE);
         private final String display;
         private final String hex;
@@ -1613,6 +1643,7 @@ public final class ResenhaClansPlugin extends JavaPlugin implements Listener, Co
         }
     }
     private record PendingTeleport(BukkitTask task, Location origin, UUID clanId) {}
+    private record ClanChatTag(String tag, String colorHex) {}
     private static final class ClanMenuHolder implements InventoryHolder {
         private Inventory inventory;
         @Override public Inventory getInventory() { return inventory; }
